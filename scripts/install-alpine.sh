@@ -6,40 +6,59 @@ set -e
 
 echo "Installing Tunnel Server on Alpine Linux..."
 
-# Fetch code and secrets from management server (VPC-only)
-# MGMT_IP: Management server private IP (e.g., 10.0.0.10)
+# Fetch secrets from management server Vault (VPC-only)
 # VAULT_TOKEN: Vault deploy token for secrets access
+# VAULT_ADDR: Vault server address (defaults to 10.0.0.10:8200)
 CODE_FROM_MGMT=false
-if [ -n "$MGMT_IP" ] && [ -n "$VAULT_TOKEN" ]; then
-    echo "Fetching from management server at $MGMT_IP..."
+if [ -n "$VAULT_TOKEN" ]; then
+    VAULT_ADDR="${VAULT_ADDR:-http://10.0.0.10:8200}"
+    FILE_SERVER="${FILE_SERVER:-http://10.0.0.10:8080}"
+    echo "Fetching secrets from Vault at $VAULT_ADDR..."
 
-    VAULT_ADDR="http://$MGMT_IP:8200"
-    FILE_SERVER="http://$MGMT_IP:8080"
-    export VAULT_ADDR VAULT_TOKEN
-
-    # Install Vault CLI
-    echo "Installing Vault CLI..."
-    cd /tmp
-    VAULT_VERSION="1.15.4"
-    wget -q https://releases.hashicorp.com/vault/${VAULT_VERSION}/vault_${VAULT_VERSION}_linux_amd64.zip
-    apk add --no-cache unzip
-    unzip -q vault_${VAULT_VERSION}_linux_amd64.zip
-    mv vault /usr/local/bin/
-    chmod +x /usr/local/bin/vault
-    rm vault_${VAULT_VERSION}_linux_amd64.zip
-
-    # Test Vault connection
-    if ! vault status >/dev/null 2>&1; then
+    # Test Vault connectivity
+    vault_health=$(curl -sf "${VAULT_ADDR}/v1/sys/health" 2>/dev/null || echo "")
+    if [ -z "$vault_health" ]; then
         echo "ERROR: Cannot connect to Vault at $VAULT_ADDR"
         exit 1
     fi
+    if echo "$vault_health" | grep -q '"sealed":true'; then
+        echo "ERROR: Vault is sealed"
+        exit 1
+    fi
 
-    # Fetch secrets from Vault
+    # Fetch secrets from Vault using HTTP API
     echo "Fetching secrets from Vault..."
-    NETLIFY_TOKEN=$(vault kv get -field=netlify_token secret/tunnel-server/main 2>/dev/null || echo "")
-    ACME_EMAIL=$(vault kv get -field=acme_email secret/tunnel-server/main 2>/dev/null || echo "admin@localhost")
-    DOMAIN=$(vault kv get -field=domain secret/tunnel-server/main 2>/dev/null || echo "")
-    JWT_SECRET=$(vault kv get -field=jwt_secret secret/tunnel-server/main 2>/dev/null || echo "")
+
+    # Netlify API token for SSL certificates
+    NETLIFY_TOKEN=$(curl -sf -H "X-Vault-Token: ${VAULT_TOKEN}" \
+        "${VAULT_ADDR}/v1/secret/data/netlify/api" | jq -r '.data.data.token // empty')
+    if [ -z "$NETLIFY_TOKEN" ]; then
+        echo "Warning: Netlify token not found in Vault, SSL will be disabled"
+    fi
+
+    # frp authentication token
+    FRP_TOKEN=$(curl -sf -H "X-Vault-Token: ${VAULT_TOKEN}" \
+        "${VAULT_ADDR}/v1/secret/data/frp/config" | jq -r '.data.data.token // empty')
+    if [ -z "$FRP_TOKEN" ]; then
+        echo "ERROR: frp token not found in Vault at secret/data/frp/config"
+        exit 1
+    fi
+
+    # Dashboard password for frp web UI
+    DASH_PASS=$(curl -sf -H "X-Vault-Token: ${VAULT_TOKEN}" \
+        "${VAULT_ADDR}/v1/secret/data/tunnel/dashboard" | jq -r '.data.data.password // empty')
+    if [ -z "$DASH_PASS" ]; then
+        DASH_PASS=$(openssl rand -hex 16)
+        echo "Warning: Dashboard password not in Vault, generated: $DASH_PASS"
+    fi
+
+    # Domain for tunnel subdomains
+    DOMAIN=$(curl -sf -H "X-Vault-Token: ${VAULT_TOKEN}" \
+        "${VAULT_ADDR}/v1/secret/data/tunnel/config" | jq -r '.data.data.domain // empty')
+
+    # JWT secret for Python admin
+    JWT_SECRET=$(curl -sf -H "X-Vault-Token: ${VAULT_TOKEN}" \
+        "${VAULT_ADDR}/v1/secret/data/tunnel/config" | jq -r '.data.data.jwt_secret // empty')
 
     echo "Secrets loaded from Vault"
 
@@ -48,15 +67,16 @@ if [ -n "$MGMT_IP" ] && [ -n "$VAULT_TOKEN" ]; then
     mkdir -p /opt/tunnel-server/app
 
     cd /opt/tunnel-server
-    wget -q $FILE_SERVER/tunnel-server/main.py -O main.py || { echo "ERROR: Failed to download main.py"; exit 1; }
-
-    # Download app directory as tarball
-    wget -q $FILE_SERVER/tunnel-server/app.tar.gz -O /tmp/app.tar.gz || { echo "ERROR: Failed to download app.tar.gz"; exit 1; }
-    tar -xzf /tmp/app.tar.gz -C /opt/tunnel-server/
-    rm /tmp/app.tar.gz
-
-    echo "Code downloaded from HTTP server"
-    CODE_FROM_MGMT=true
+    if wget -q $FILE_SERVER/tunnel-server/main.py -O main.py 2>/dev/null; then
+        # Download app directory as tarball
+        wget -q $FILE_SERVER/tunnel-server/app.tar.gz -O /tmp/app.tar.gz
+        tar -xzf /tmp/app.tar.gz -C /opt/tunnel-server/
+        rm -f /tmp/app.tar.gz
+        echo "Code downloaded from HTTP server"
+        CODE_FROM_MGMT=true
+    else
+        echo "Note: Code not available from HTTP server, will use local files"
+    fi
 fi
 
 # Defaults
@@ -82,7 +102,8 @@ apk add --no-cache \
     sqlite \
     openssl \
     ufw \
-    curl
+    curl \
+    jq
 
 # Install frp server
 echo "Installing frp server..."
@@ -110,21 +131,38 @@ else
     echo "Using domain: $DOMAIN"
 fi
 
-# Generate frps config
-cat > /etc/frp/frps.ini <<EOF
-[common]
-bind_port = 7000
-vhost_http_port = 80
-vhost_https_port = 443
-subdomain_host = $DOMAIN
+# Generate frps config (TOML format)
+# FRP_TOKEN must be set (from Vault or generate one)
+FRP_TOKEN="${FRP_TOKEN:-$(openssl rand -hex 32)}"
+DASH_PASS="${DASH_PASS:-$(openssl rand -hex 16)}"
 
-# Logging
-log_file = /var/log/frps.log
-log_level = info
+cat > /etc/frp/frps.toml <<EOF
+bindPort = 7000
+vhostHTTPPort = 8080
+vhostHTTPSPort = 8443
+subDomainHost = "${DOMAIN}"
 
-# Connection limits
-max_pool_count = 5
+[auth]
+method = "token"
+token = "${FRP_TOKEN}"
+
+[log]
+to = "/var/log/frps.log"
+level = "info"
+maxDays = 7
+
+[transport]
+maxPoolCount = 10
+heartbeatTimeout = 30
+
+[webServer]
+addr = "0.0.0.0"
+port = 7500
+user = "admin"
+password = "${DASH_PASS}"
 EOF
+
+echo "frp dashboard credentials: admin / ${DASH_PASS}"
 
 # Create frps OpenRC service
 cat > /etc/init.d/frps <<'EOF'
@@ -133,7 +171,7 @@ cat > /etc/init.d/frps <<'EOF'
 name="frps"
 description="frp server"
 command="/usr/local/bin/frps"
-command_args="-c /etc/frp/frps.ini"
+command_args="-c /etc/frp/frps.toml"
 command_background=true
 pidfile="/run/${RC_SVCNAME}.pid"
 output_log="/var/log/frps.log"
@@ -266,6 +304,11 @@ ${DOMAIN} {
     }
     reverse_proxy localhost:8000
 }
+
+# Health check endpoint (no TLS)
+:8888 {
+    respond /health "OK" 200
+}
 EOF
 
     # Create Caddy OpenRC service
@@ -309,10 +352,12 @@ ufw --force enable
 
 # Allow required ports
 ufw allow 22/tcp    # SSH
-ufw allow 80/tcp    # HTTP tunnels
-ufw allow 443/tcp   # HTTPS tunnels
-ufw allow 7000/tcp  # frp control
-ufw allow 8000/tcp  # Admin dashboard
+ufw allow 80/tcp    # HTTP (Caddy)
+ufw allow 443/tcp   # HTTPS (Caddy)
+ufw allow 7000/tcp  # frp bind port
+ufw allow 8000/tcp  # Python admin dashboard
+ufw allow 8888/tcp  # Health check endpoint
+ufw allow from 10.0.0.0/24 to any port 7500  # frp dashboard (VPC only)
 
 # Show status
 ufw status
@@ -425,9 +470,11 @@ if [ -f /etc/init.d/caddy ]; then
 log "  caddy: $(rc-service caddy status 2>&1 | head -1)"
 fi
 log "  Port 7000: $(check_port 7000 && echo 'listening' || echo 'NOT listening')"
+log "  Port 7500: $(check_port 7500 && echo 'listening' || echo 'NOT listening')"
 log "  Port 8000: $(check_port 8000 && echo 'listening' || echo 'NOT listening')"
 if [ -f /etc/init.d/caddy ]; then
 log "  Port 443: $(check_port 443 && echo 'listening' || echo 'NOT listening')"
+log "  Port 8888: $(check_port 8888 && echo 'listening' || echo 'NOT listening')"
 fi
 log "=== Boot check complete ==="
 EOF
@@ -463,12 +510,20 @@ echo "Server Information:"
 echo "  IP: $SERVER_IP"
 echo "  Domain: $DOMAIN"
 echo ""
-echo "Admin Dashboard:"
+echo "Python Admin Dashboard:"
 echo "  URL: http://$SERVER_IP:8000"
 echo "  Check logs for admin credentials"
 echo ""
+echo "frp Dashboard (VPC only):"
+echo "  URL: http://$SERVER_IP:7500"
+echo "  Credentials: admin / ${DASH_PASS}"
+echo ""
+echo "Health Check:"
+echo "  URL: http://$SERVER_IP:8888/health"
+echo ""
 echo "Client Connection Info:"
-echo "  Server URL: http://$SERVER_IP:7000"
+echo "  Server: $SERVER_IP:7000"
+echo "  Token: ${FRP_TOKEN}"
 echo ""
 if [ "$SSL_ENABLED" = "true" ]; then
 echo "SSL Configuration:"
