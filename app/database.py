@@ -1,0 +1,108 @@
+"""
+Database initialization and connection management
+"""
+import sqlite3
+import os
+import secrets
+import bcrypt
+from .config import DB_FILE
+
+
+def get_db():
+    """Get database connection"""
+    conn = sqlite3.connect(DB_FILE)
+    conn.row_factory = sqlite3.Row
+    return conn
+
+
+def init_db():
+    """Initialize database with tables and default admin"""
+    # Ensure directory exists
+    db_dir = os.path.dirname(DB_FILE)
+    if db_dir:
+        os.makedirs(db_dir, exist_ok=True)
+
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+
+    # Users table
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            email TEXT UNIQUE NOT NULL,
+            password_hash TEXT NOT NULL,
+            token TEXT UNIQUE NOT NULL,
+            is_admin INTEGER DEFAULT 0,
+            is_active INTEGER DEFAULT 1,
+            max_tunnels INTEGER DEFAULT 10,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            last_login TIMESTAMP
+        )
+    """)
+
+    # Tunnels table
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS tunnels (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            name TEXT NOT NULL,
+            type TEXT NOT NULL,
+            local_port INTEGER NOT NULL,
+            local_host TEXT DEFAULT '127.0.0.1',
+            subdomain TEXT,
+            remote_port INTEGER,
+            is_active INTEGER DEFAULT 0,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            last_connected TIMESTAMP,
+            FOREIGN KEY (user_id) REFERENCES users(id),
+            UNIQUE(user_id, name)
+        )
+    """)
+
+    # Activity logs
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS activity_logs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER,
+            action TEXT NOT NULL,
+            details TEXT,
+            ip_address TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (user_id) REFERENCES users(id)
+        )
+    """)
+
+    # Server stats
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS server_stats (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            active_tunnels INTEGER DEFAULT 0,
+            total_connections INTEGER DEFAULT 0,
+            bytes_in INTEGER DEFAULT 0,
+            bytes_out INTEGER DEFAULT 0,
+            timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+
+    # Create default admin if not exists
+    cursor.execute("SELECT COUNT(*) FROM users WHERE is_admin = 1")
+    if cursor.fetchone()[0] == 0:
+        admin_password = secrets.token_urlsafe(16)
+        password_hash = bcrypt.hashpw(admin_password.encode(), bcrypt.gensalt())
+        admin_token = secrets.token_hex(32)
+
+        cursor.execute("""
+            INSERT INTO users (email, password_hash, token, is_admin, max_tunnels)
+            VALUES (?, ?, ?, 1, 999)
+        """, ("admin@localhost", password_hash, admin_token))
+
+        print(f"\n{'='*60}")
+        print("ADMIN CREDENTIALS - SAVE THESE!")
+        print(f"{'='*60}")
+        print(f"Email: admin@localhost")
+        print(f"Password: {admin_password}")
+        print(f"Token: {admin_token}")
+        print(f"{'='*60}\n")
+
+    conn.commit()
+    conn.close()
