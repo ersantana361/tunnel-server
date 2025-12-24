@@ -6,18 +6,57 @@ set -e
 
 echo "Installing Tunnel Server on Alpine Linux..."
 
-# Fetch secrets from vault server if VAULT_URL is set
-if [ -n "$VAULT_URL" ]; then
-    echo "Fetching secrets from vault..."
-    SECRETS=$(curl -sf "$VAULT_URL/api/secrets/tunnel-server" || echo "{}")
+# Fetch code and secrets from management server (VPC-only)
+# MGMT_IP: Management server private IP (e.g., 10.0.0.10)
+# VAULT_TOKEN: Vault deploy token for secrets access
+CODE_FROM_MGMT=false
+if [ -n "$MGMT_IP" ] && [ -n "$VAULT_TOKEN" ]; then
+    echo "Fetching from management server at $MGMT_IP..."
 
-    # Parse secrets (assumes JSON response)
-    if [ -n "$SECRETS" ] && [ "$SECRETS" != "{}" ]; then
-        NETLIFY_TOKEN=$(echo "$SECRETS" | grep -o '"netlify_token":"[^"]*"' | cut -d'"' -f4)
-        ACME_EMAIL=$(echo "$SECRETS" | grep -o '"acme_email":"[^"]*"' | cut -d'"' -f4)
-        DOMAIN=$(echo "$SECRETS" | grep -o '"domain":"[^"]*"' | cut -d'"' -f4)
-        echo "Secrets loaded from vault"
+    VAULT_ADDR="http://$MGMT_IP:8200"
+    FILE_SERVER="http://$MGMT_IP:8080"
+    export VAULT_ADDR VAULT_TOKEN
+
+    # Install Vault CLI
+    echo "Installing Vault CLI..."
+    cd /tmp
+    VAULT_VERSION="1.15.4"
+    wget -q https://releases.hashicorp.com/vault/${VAULT_VERSION}/vault_${VAULT_VERSION}_linux_amd64.zip
+    apk add --no-cache unzip
+    unzip -q vault_${VAULT_VERSION}_linux_amd64.zip
+    mv vault /usr/local/bin/
+    chmod +x /usr/local/bin/vault
+    rm vault_${VAULT_VERSION}_linux_amd64.zip
+
+    # Test Vault connection
+    if ! vault status >/dev/null 2>&1; then
+        echo "ERROR: Cannot connect to Vault at $VAULT_ADDR"
+        exit 1
     fi
+
+    # Fetch secrets from Vault
+    echo "Fetching secrets from Vault..."
+    NETLIFY_TOKEN=$(vault kv get -field=netlify_token secret/tunnel-server/main 2>/dev/null || echo "")
+    ACME_EMAIL=$(vault kv get -field=acme_email secret/tunnel-server/main 2>/dev/null || echo "admin@localhost")
+    DOMAIN=$(vault kv get -field=domain secret/tunnel-server/main 2>/dev/null || echo "")
+    JWT_SECRET=$(vault kv get -field=jwt_secret secret/tunnel-server/main 2>/dev/null || echo "")
+
+    echo "Secrets loaded from Vault"
+
+    # Download code from HTTP file server (NO PASSWORD - VPC-only access)
+    echo "Downloading code from HTTP server (VPC-only, no auth)..."
+    mkdir -p /opt/tunnel-server/app
+
+    cd /opt/tunnel-server
+    wget -q $FILE_SERVER/tunnel-server/main.py -O main.py || { echo "ERROR: Failed to download main.py"; exit 1; }
+
+    # Download app directory as tarball
+    wget -q $FILE_SERVER/tunnel-server/app.tar.gz -O /tmp/app.tar.gz || { echo "ERROR: Failed to download app.tar.gz"; exit 1; }
+    tar -xzf /tmp/app.tar.gz -C /opt/tunnel-server/
+    rm /tmp/app.tar.gz
+
+    echo "Code downloaded from HTTP server"
+    CODE_FROM_MGMT=true
 fi
 
 # Defaults
@@ -127,36 +166,38 @@ python3 -m venv /opt/tunnel-server/venv
     python-multipart==0.0.6 \
     PyJWT
 
-# Copy application files
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
+# Copy application files (skip if downloaded from management server)
+if [ "$CODE_FROM_MGMT" = "false" ]; then
+    SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+    PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 
-# Create app directories
-mkdir -p /opt/tunnel-server/app/models
-mkdir -p /opt/tunnel-server/app/routes
-mkdir -p /opt/tunnel-server/app/services
-mkdir -p /opt/tunnel-server/app/templates
+    # Create app directories
+    mkdir -p /opt/tunnel-server/app/models
+    mkdir -p /opt/tunnel-server/app/routes
+    mkdir -p /opt/tunnel-server/app/services
+    mkdir -p /opt/tunnel-server/app/templates
 
-# Copy main entry point and app package
-if [ -f "$PROJECT_DIR/main.py" ]; then
-    cp "$PROJECT_DIR/main.py" /opt/tunnel-server/
-    cp -r "$PROJECT_DIR/app/"* /opt/tunnel-server/app/
-    echo "Application files copied"
-elif [ -f "$SCRIPT_DIR/main.py" ]; then
-    cp "$SCRIPT_DIR/main.py" /opt/tunnel-server/
-    cp -r "$SCRIPT_DIR/app/"* /opt/tunnel-server/app/
-    echo "Application files copied"
-elif [ -f "./main.py" ]; then
-    cp ./main.py /opt/tunnel-server/
-    cp -r ./app/* /opt/tunnel-server/app/
-    echo "Application files copied"
-else
-    echo "Warning: main.py not found"
-    echo "Please copy main.py and app/ folder to /opt/tunnel-server/"
+    # Copy main entry point and app package
+    if [ -f "$PROJECT_DIR/main.py" ]; then
+        cp "$PROJECT_DIR/main.py" /opt/tunnel-server/
+        cp -r "$PROJECT_DIR/app/"* /opt/tunnel-server/app/
+        echo "Application files copied"
+    elif [ -f "$SCRIPT_DIR/main.py" ]; then
+        cp "$SCRIPT_DIR/main.py" /opt/tunnel-server/
+        cp -r "$SCRIPT_DIR/app/"* /opt/tunnel-server/app/
+        echo "Application files copied"
+    elif [ -f "./main.py" ]; then
+        cp ./main.py /opt/tunnel-server/
+        cp -r ./app/* /opt/tunnel-server/app/
+        echo "Application files copied"
+    else
+        echo "Warning: main.py not found"
+        echo "Please copy main.py and app/ folder to /opt/tunnel-server/"
+    fi
 fi
 
-# Generate JWT secret
-JWT_SECRET=$(openssl rand -hex 32)
+# Generate JWT secret (use Vault value if available, otherwise generate new)
+JWT_SECRET="${JWT_SECRET:-$(openssl rand -hex 32)}"
 
 # Create tunnel-admin OpenRC service
 cat > /etc/init.d/tunnel-admin <<EOF
