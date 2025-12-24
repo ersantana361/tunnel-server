@@ -74,10 +74,35 @@ export TUNNEL_SERVER_IP=your-server-ip
 # Then SSH and run installer (first time only)
 ssh root@your-server-ip
 cd /opt/tunnel-server
-./install-alpine.sh  # or install.sh for Ubuntu/Debian
+./scripts/install-alpine.sh  # or scripts/install.sh for Ubuntu/Debian
 
 # Access at http://your-server:8000
 ```
+
+### Connecting Tunnels
+
+After the server is running, use the frp client on your local machine:
+
+```bash
+# Create frpc.ini
+cat > frpc.ini << 'EOF'
+[common]
+server_addr = your-server-domain.com
+server_port = 7000
+token = YOUR_USER_TOKEN
+
+[my-app]
+type = http
+local_ip = 127.0.0.1
+local_port = 3000
+subdomain = myapp
+EOF
+
+# Connect
+frpc -c frpc.ini
+```
+
+Access your local service at: `http://myapp.your-server-domain.com`
 
 ---
 

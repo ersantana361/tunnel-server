@@ -357,6 +357,38 @@ nc -zv your-server-ip 7000
    sqlite3 tunnel.db "SELECT token FROM users WHERE email = 'user@example.com';"
    ```
 
+### Tunnel Shows "Page Not Found" from frp
+
+**Symptom:** Browser shows frp's "The page you requested was not found" error
+
+**Causes:**
+- The frp client (frpc) is not running or not connected
+- The subdomain is not registered with the server
+
+**Solutions:**
+
+1. **Ensure frpc is running on your client machine**
+   ```bash
+   # Check if frpc is running
+   ps aux | grep frpc
+
+   # Start frpc with your config
+   frpc -c frpc.ini
+   ```
+
+2. **Verify frpc connected successfully**
+   ```
+   Look for these messages in frpc output:
+   [I] login to server success
+   [I] [tunnel-name] start proxy success
+   ```
+
+3. **Check token matches**
+   ```bash
+   # Your frpc.ini token must match your user's token
+   # Get your token from the admin dashboard
+   ```
+
 ### Tunnel Not Accessible
 
 **Symptom:** Tunnel shows active but can't access via subdomain
@@ -377,19 +409,40 @@ netstat -tuln | grep 80
 
 1. **DNS not configured**
    ```
-   Add A record: *.yourdomain.com -> YOUR_SERVER_IP
+   Add wildcard A record: *.yourdomain.com -> YOUR_SERVER_IP
    ```
 
-2. **Port 80 blocked**
+2. **subdomain_host not set**
+   ```bash
+   # On your server, set the domain in frps.ini
+   sed -i 's/subdomain_host.*/subdomain_host = yourdomain.com/' /etc/frp/frps.ini
+   rc-service frps restart  # or: systemctl restart frps
+   ```
+
+3. **Port 80 blocked**
    ```bash
    sudo ufw allow 80/tcp
    ```
 
-3. **Local service not running**
+4. **Local service not running**
    ```bash
-   # Ensure local service is running
-   curl http://localhost:8080  # or whatever local port
+   # Ensure local service is running on the port specified in frpc.ini
+   curl http://localhost:3000  # or whatever local port
    ```
+
+### Public URL Shows IP Instead of Domain
+
+**Symptom:** API returns URLs like `http://myapp.192.168.1.1` instead of `http://myapp.yourdomain.com`
+
+**Solution:**
+```bash
+# Set SERVER_DOMAIN environment variable
+export SERVER_DOMAIN="yourdomain.com"
+
+# Or configure in frps.ini
+sed -i 's/subdomain_host.*/subdomain_host = yourdomain.com/' /etc/frp/frps.ini
+rc-service frps restart
+```
 
 ---
 

@@ -36,3 +36,8 @@ htmlcov/
 dist/
 build/
 *.egg-info/
+
+# frp client config (contains tokens)
+frpc.ini
+frpc.toml
+frpc.yaml

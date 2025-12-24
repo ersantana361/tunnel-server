@@ -1,6 +1,6 @@
 # Getting Started
 
-This guide will walk you through setting up the Tunnel Server from scratch, whether you're running it locally for development or deploying to production.
+This guide walks you through setting up the Tunnel Server, from local development to production deployment, and connecting your first tunnel.
 
 ## Table of Contents
 
@@ -9,6 +9,7 @@ This guide will walk you through setting up the Tunnel Server from scratch, whet
 - [First Run](#first-run)
 - [Understanding Admin Credentials](#understanding-admin-credentials)
 - [Creating Your First User](#creating-your-first-user)
+- [Connecting Your First Tunnel](#connecting-your-first-tunnel)
 - [Next Steps](#next-steps)
 
 ---
@@ -212,6 +213,71 @@ Fill in the user details:
 After creating the user, a **tunnel token** is displayed. This token is used by the client application to authenticate tunnel connections.
 
 **Important**: Copy and securely share this token with the user. They will need it to connect their client.
+
+---
+
+## Connecting Your First Tunnel
+
+The server is only half the equation. To actually expose your local services, you need the **frp client (frpc)** running on your local machine.
+
+### Step 1: Install frpc
+
+Download frp from [GitHub releases](https://github.com/fatedier/frp/releases):
+
+```bash
+# Example for Linux amd64
+wget https://github.com/fatedier/frp/releases/download/v0.51.3/frp_0.51.3_linux_amd64.tar.gz
+tar -xzf frp_0.51.3_linux_amd64.tar.gz
+cd frp_0.51.3_linux_amd64
+```
+
+### Step 2: Create Configuration
+
+Create `frpc.ini` with your tunnel configuration:
+
+```ini
+[common]
+server_addr = your-server-ip-or-domain
+server_port = 7000
+token = YOUR_USER_TOKEN
+
+[my-tunnel]
+type = http
+local_ip = 127.0.0.1
+local_port = 3000
+subdomain = myapp
+```
+
+Replace:
+- `server_addr` - Your server's IP or domain
+- `token` - The tunnel token from your user account
+- `local_port` - The port your local service runs on
+- `subdomain` - The subdomain for your tunnel
+
+### Step 3: Start a Local Service
+
+```bash
+# Example: simple HTTP server
+python3 -m http.server 3000
+```
+
+### Step 4: Connect the Tunnel
+
+```bash
+./frpc -c frpc.ini
+```
+
+You should see:
+```
+[I] login to server success
+[I] [my-tunnel] start proxy success
+```
+
+### Step 5: Access Your Service
+
+Your local service is now accessible at:
+- With domain: `http://myapp.yourdomain.com`
+- With IP only: Requires proxy configuration (see DNS guide)
 
 ---
 

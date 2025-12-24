@@ -1,52 +1,65 @@
-# Quick Start Guide - 10 Minutes to Your Own ngrok
+# Quick Start Guide
 
-This guide will have you running your own tunnel service in 10 minutes.
+Get your self-hosted tunnel server running in 10 minutes.
 
 ## Prerequisites
 
-- DigitalOcean account ($4/month droplet)
-- Domain name (optional, can use IP)
+- A server (VPS/cloud instance) with a public IP
+- Domain name (optional, can use IP for testing)
 - SSH access to your server
 
-## Step 1: Create DigitalOcean Droplet (2 min)
-
-1. Go to DigitalOcean
-2. Create Droplet:
-   - **OS**: Ubuntu 24.04 LTS
-   - **Plan**: Basic $4/month (1GB RAM)
-   - **Region**: Closest to you
-   - **Add SSH key**
-3. Wait for it to boot (~60 seconds)
-4. Note the IP address
-
-## Step 2: Install Server (3 min)
+## Step 1: Deploy Server (3 min)
 
 ```bash
 # Set up SSH key for password-free access (one-time)
-ssh-copy-id root@YOUR_DROPLET_IP
+ssh-copy-id root@YOUR_SERVER_IP
 
 # Deploy from your local machine
-export TUNNEL_SERVER_IP=YOUR_DROPLET_IP
+export TUNNEL_SERVER_IP=YOUR_SERVER_IP
 ./scripts/deploy.sh
 
-# SSH into your server for first-time install
-ssh root@YOUR_DROPLET_IP
+# SSH into server and run installer
+ssh root@YOUR_SERVER_IP
 cd /opt/tunnel-server
+
+# Ubuntu/Debian
 chmod +x scripts/install.sh
 sudo ./scripts/install.sh
+
+# Alpine Linux
+chmod +x scripts/install-alpine.sh
+sudo ./scripts/install-alpine.sh
 ```
 
-**IMPORTANT**: Save the admin credentials shown at the end!
+**Save the admin credentials shown at the end!**
 
-Example output:
 ```
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+============================================================
 ADMIN CREDENTIALS - SAVE THESE!
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+============================================================
 Email: admin@localhost
 Password: abc123xyz789...
 Token: def456uvw012...
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+============================================================
+```
+
+## Step 2: Configure DNS (2 min)
+
+For subdomain-based tunnels, add these DNS records:
+
+```
+Type    Name    Value
+A       @       YOUR_SERVER_IP
+A       *       YOUR_SERVER_IP
+```
+
+Then configure the server:
+
+```bash
+# On your server
+sed -i 's/subdomain_host.*/subdomain_host = yourdomain.com/' /etc/frp/frps.ini
+rc-service frps restart  # Alpine
+# or: systemctl restart frps  # Ubuntu/Debian
 ```
 
 ## Step 3: Create a User (2 min)
@@ -58,141 +71,132 @@ Token: def456uvw012...
    - Email: `your-email@example.com`
    - Password: `your-password`
    - Max Tunnels: `10`
-5. Click "Create User"
-6. **Copy the tunnel token shown** - you'll need this for the client
+5. **Copy the tunnel token** - you'll need this next
 
-## Step 4: Install Client (2 min)
+## Step 4: Install frpc Client (2 min)
 
-On your local machine:
-
-```bash
-cd tunnel-client-v2
-
-# Install dependencies
-chmod +x install.sh
-./install.sh
-
-# Start the client
-python3 app.py
-```
-
-## Step 5: Connect & Create Tunnel (1 min)
-
-1. Open: `http://localhost:3000`
-2. Enter configuration:
-   - **Server URL**: `http://YOUR_SERVER_IP:7000`
-   - **Your Token**: (paste from step 3)
-3. Click "Connect"
-4. Add your first tunnel:
-   - **Name**: `my-api`
-   - **Type**: `HTTP`
-   - **Local Port**: `8080` (or whatever you're running)
-   - **Subdomain**: `api`
-5. Click "Add Tunnel"
-6. Click "Start"
-
-## Step 6: Test It! (30 sec)
+On your local machine, download frp:
 
 ```bash
-# Start a simple web server
-python3 -m http.server 8080
+# Download from https://github.com/fatedier/frp/releases
+# Example for Linux amd64:
+wget https://github.com/fatedier/frp/releases/download/v0.51.3/frp_0.51.3_linux_amd64.tar.gz
+tar -xzf frp_0.51.3_linux_amd64.tar.gz
+cd frp_0.51.3_linux_amd64
 ```
 
-Now access it at:
-- If using domain: `http://api.yourdomain.com`
-- If using IP: `http://YOUR_SERVER_IP` (with proxy setup)
+## Step 5: Create Tunnel Config (1 min)
 
-## 🎉 Done!
+Create `frpc.ini`:
+
+```ini
+[common]
+server_addr = yourdomain.com
+server_port = 7000
+token = YOUR_USER_TOKEN_FROM_STEP_3
+
+[my-app]
+type = http
+local_ip = 127.0.0.1
+local_port = 3000
+subdomain = myapp
+```
+
+## Step 6: Connect (30 sec)
+
+```bash
+# Start a local service (example)
+python3 -m http.server 3000 &
+
+# Connect the tunnel
+./frpc -c frpc.ini
+```
+
+Now access your local service at: `http://myapp.yourdomain.com`
+
+## Done!
 
 You now have:
-- ✅ Admin dashboard to manage users
-- ✅ Client dashboard to manage tunnels
-- ✅ Secure token-based authentication
-- ✅ Unlimited tunnels (within your limits)
-- ✅ Real-time monitoring
-- ✅ Full control over your data
+- Admin dashboard at `http://YOUR_SERVER_IP:8000`
+- Tunnel server accepting connections on port 7000
+- Your local port 3000 exposed via `myapp.yourdomain.com`
 
-## Common Use Cases
+## Common Tunnel Examples
 
-### Expose Your API
+### Web Application
+```ini
+[webapp]
+type = http
+local_ip = 127.0.0.1
+local_port = 3000
+subdomain = app
 ```
-Name: api
-Type: HTTP
-Local Port: 8080
-Subdomain: api
-```
-Access at: `api.yourdomain.com`
+Access at: `http://app.yourdomain.com`
 
-### Demo React App
+### API Server
+```ini
+[api]
+type = http
+local_ip = 127.0.0.1
+local_port = 8080
+subdomain = api
 ```
-Name: webapp
-Type: HTTP
-Local Port: 3000
-Subdomain: demo
-```
-Access at: `demo.yourdomain.com`
+Access at: `http://api.yourdomain.com`
 
-### Share Database
+### Database (TCP)
+```ini
+[postgres]
+type = tcp
+local_ip = 127.0.0.1
+local_port = 5432
+remote_port = 5432
 ```
-Name: postgres
-Type: TCP
-Local Port: 5432
-Remote Port: 5432
-```
-Connect: `psql -h YOUR_SERVER_IP -p 5432`
-
-## Pro Tips
-
-### Auto-start Client on Boot
-```bash
-sudo systemctl enable tunnel-client
-sudo systemctl start tunnel-client
-```
-
-### Monitor Everything
-- **Server**: `http://YOUR_SERVER_IP:8000`
-- **Client**: `http://localhost:3000`
-- **Logs**: `journalctl -u tunnel-client -f`
+Connect: `psql -h yourdomain.com -p 5432`
 
 ### Multiple Tunnels
-Add as many as you want! Enable/disable with one click.
+```ini
+[common]
+server_addr = yourdomain.com
+server_port = 7000
+token = YOUR_TOKEN
 
-### Team Setup
-Create a user for each team member, they each get their own token.
+[frontend]
+type = http
+local_ip = 127.0.0.1
+local_port = 3000
+subdomain = app
+
+[backend]
+type = http
+local_ip = 127.0.0.1
+local_port = 8080
+subdomain = api
+```
 
 ## Troubleshooting
 
-### Can't access admin?
+### Can't access admin dashboard?
 ```bash
-systemctl status tunnel-admin
+# Check service status
+systemctl status tunnel-admin  # Ubuntu/Debian
+rc-service tunnel-admin status  # Alpine
+
+# Check logs
 journalctl -u tunnel-admin -n 50
 ```
 
-### Client won't connect?
-- Check server URL format: `http://server:7000` (not 8000!)
-- Verify token is correct
-- Test: `telnet YOUR_SERVER_IP 7000`
+### frpc won't connect?
+- Check server URL format: `yourdomain.com` (not http://)
+- Verify port 7000 is accessible: `telnet yourdomain.com 7000`
+- Verify token matches your user's token
 
-### Tunnel not working?
-- Make sure service is running (green dot)
-- Check your local service is running
-- View logs in the client UI
+### Tunnel shows "page not found"?
+- Ensure your local service is running on the specified port
+- Check frpc output for errors
+- Verify subdomain_host is configured in frps.ini
 
 ## Next Steps
 
-1. **Setup DNS** - Point `*.yourdomain.com` to your server
-2. **Add HTTPS** - Setup Let's Encrypt (see server README)
-3. **Create more users** - For your team
-4. **Monitor usage** - Check activity logs
-
-## Need Help?
-
-- Full docs: See README-v2.md
-- Server details: tunnel-server-v2/README.md
-- Client details: tunnel-client-v2/README.md
-
----
-
-**Total Time**: ~10 minutes
-**Total Cost**: $4/month
-**Total Value**: Priceless 😎
+- [Full Documentation](docs/README.md)
+- [API Reference](docs/api/README.md)
+- [Security Guide](docs/security/README.md)
