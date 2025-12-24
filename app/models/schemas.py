@@ -37,3 +37,12 @@ class TunnelCreate(BaseModel):
 
 class TunnelStatusUpdate(BaseModel):
     is_active: bool
+
+
+class TunnelUpdate(BaseModel):
+    name: Optional[str] = None
+    type: Optional[str] = None
+    local_port: Optional[int] = None
+    local_host: Optional[str] = None
+    subdomain: Optional[str] = None
+    remote_port: Optional[int] = None

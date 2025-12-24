@@ -6,7 +6,7 @@ from datetime import datetime
 from fastapi import APIRouter, HTTPException, Depends
 
 from ..config import DB_FILE
-from ..models.schemas import TunnelCreate, TunnelStatusUpdate
+from ..models.schemas import TunnelCreate, TunnelStatusUpdate, TunnelUpdate
 from ..dependencies import verify_token
 from ..services.tunnel import (
     get_server_domain,
@@ -116,6 +116,91 @@ async def create_tunnel(tunnel: TunnelCreate, user_id: int = Depends(verify_toke
         raise HTTPException(status_code=400, detail=f"Tunnel with name '{tunnel.name}' already exists.")
     finally:
         conn.close()
+
+
+@router.put("/{tunnel_id}")
+async def update_tunnel(tunnel_id: int, tunnel_update: TunnelUpdate, user_id: int = Depends(verify_token)):
+    """Update a tunnel configuration (must own the tunnel or be admin)"""
+    conn = sqlite3.connect(DB_FILE)
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+
+    # Check if admin
+    cursor.execute("SELECT is_admin FROM users WHERE id = ?", (user_id,))
+    is_admin = cursor.fetchone()[0]
+
+    # Get existing tunnel
+    cursor.execute("SELECT * FROM tunnels WHERE id = ?", (tunnel_id,))
+    tunnel = cursor.fetchone()
+
+    if not tunnel:
+        conn.close()
+        raise HTTPException(status_code=404, detail="Tunnel not found")
+
+    # Check ownership
+    if not is_admin and tunnel['user_id'] != user_id:
+        conn.close()
+        raise HTTPException(status_code=403, detail="You don't have permission to update this tunnel")
+
+    # Build update fields
+    update_fields = {}
+    if tunnel_update.name is not None:
+        update_fields['name'] = tunnel_update.name
+    if tunnel_update.type is not None:
+        update_fields['type'] = tunnel_update.type
+    if tunnel_update.local_port is not None:
+        update_fields['local_port'] = tunnel_update.local_port
+    if tunnel_update.local_host is not None:
+        update_fields['local_host'] = tunnel_update.local_host
+    if tunnel_update.subdomain is not None:
+        update_fields['subdomain'] = tunnel_update.subdomain
+    if tunnel_update.remote_port is not None:
+        update_fields['remote_port'] = tunnel_update.remote_port
+
+    if not update_fields:
+        conn.close()
+        raise HTTPException(status_code=400, detail="No fields to update")
+
+    # Determine final type for validation
+    final_type = update_fields.get('type', tunnel['type'])
+    final_subdomain = update_fields.get('subdomain', tunnel['subdomain'])
+    final_remote_port = update_fields.get('remote_port', tunnel['remote_port'])
+
+    # Validate type constraints
+    if final_type in ("http", "https") and not final_subdomain:
+        conn.close()
+        raise HTTPException(status_code=400, detail="Subdomain is required for HTTP/HTTPS tunnels.")
+    if final_type == "tcp" and not final_remote_port:
+        conn.close()
+        raise HTTPException(status_code=400, detail="Remote port is required for TCP tunnels.")
+
+    # Build and execute UPDATE query
+    set_clause = ", ".join(f"{k} = ?" for k in update_fields.keys())
+    values = list(update_fields.values()) + [tunnel_id]
+
+    try:
+        cursor.execute(f"UPDATE tunnels SET {set_clause} WHERE id = ?", values)
+        conn.commit()
+
+        # Fetch updated tunnel
+        cursor.execute("SELECT * FROM tunnels WHERE id = ?", (tunnel_id,))
+        updated_tunnel = dict(cursor.fetchone())
+        conn.close()
+
+        log_activity(user_id, "tunnel_updated", f"Updated tunnel '{updated_tunnel['name']}'")
+
+        domain = get_server_domain()
+        updated_tunnel['public_url'] = get_public_url(
+            updated_tunnel['type'],
+            updated_tunnel.get('subdomain'),
+            updated_tunnel.get('remote_port'),
+            domain
+        )
+
+        return updated_tunnel
+    except sqlite3.IntegrityError:
+        conn.close()
+        raise HTTPException(status_code=400, detail=f"Tunnel with name '{update_fields.get('name')}' already exists.")
 
 
 @router.delete("/{tunnel_id}")
