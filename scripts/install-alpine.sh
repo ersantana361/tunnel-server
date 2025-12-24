@@ -6,6 +6,23 @@ set -e
 
 echo "Installing Tunnel Server on Alpine Linux..."
 
+# Fetch secrets from vault server if VAULT_URL is set
+if [ -n "$VAULT_URL" ]; then
+    echo "Fetching secrets from vault..."
+    SECRETS=$(curl -sf "$VAULT_URL/api/secrets/tunnel-server" || echo "{}")
+
+    # Parse secrets (assumes JSON response)
+    if [ -n "$SECRETS" ] && [ "$SECRETS" != "{}" ]; then
+        NETLIFY_TOKEN=$(echo "$SECRETS" | grep -o '"netlify_token":"[^"]*"' | cut -d'"' -f4)
+        ACME_EMAIL=$(echo "$SECRETS" | grep -o '"acme_email":"[^"]*"' | cut -d'"' -f4)
+        DOMAIN=$(echo "$SECRETS" | grep -o '"domain":"[^"]*"' | cut -d'"' -f4)
+        echo "Secrets loaded from vault"
+    fi
+fi
+
+# Defaults
+ACME_EMAIL="${ACME_EMAIL:-admin@localhost}"
+
 # Check root
 if [ "$(id -u)" -ne 0 ]; then
     echo "Please run as root: sudo ./install-alpine.sh"
@@ -46,12 +63,12 @@ mkdir -p /var/lib/tunnel-server
 mkdir -p /etc/frp
 mkdir -p /var/log
 
-# Get configuration
-printf "Enter your domain name (or leave empty to use IP): "
-read DOMAIN
+# Get configuration - use vault-provided domain or fall back to IP
 if [ -z "$DOMAIN" ]; then
     DOMAIN=$(curl -s ifconfig.me)
     echo "Using IP: $DOMAIN"
+else
+    echo "Using domain: $DOMAIN"
 fi
 
 # Generate frps config
@@ -169,6 +186,80 @@ start_pre() {
 EOF
 chmod +x /etc/init.d/tunnel-admin
 
+# SSL Configuration with Caddy (automatic if NETLIFY_TOKEN is available)
+SSL_ENABLED=false
+if [ -n "$NETLIFY_TOKEN" ]; then
+    echo "Installing Caddy with Netlify DNS plugin for SSL..."
+
+    # Install Go for building Caddy
+    apk add --no-cache go
+
+    # Build Caddy with Netlify DNS plugin
+    export GOPATH=/root/go
+    export PATH=$PATH:$GOPATH/bin
+    go install github.com/caddyserver/xcaddy/cmd/xcaddy@latest
+    $GOPATH/bin/xcaddy build --with github.com/caddy-dns/netlify --output /usr/local/bin/caddy
+    chmod +x /usr/local/bin/caddy
+
+    # Create Caddy config directory
+    mkdir -p /etc/caddy
+
+    # Create Caddyfile
+    cat > /etc/caddy/Caddyfile <<EOF
+{
+    email $ACME_EMAIL
+}
+
+# Wildcard cert for all tunnel subdomains
+*.${DOMAIN} {
+    tls {
+        dns netlify {env.NETLIFY_TOKEN}
+    }
+    reverse_proxy localhost:8080
+}
+
+# Admin dashboard with SSL
+${DOMAIN} {
+    tls {
+        dns netlify {env.NETLIFY_TOKEN}
+    }
+    reverse_proxy localhost:8000
+}
+EOF
+
+    # Create Caddy OpenRC service
+    cat > /etc/init.d/caddy <<EOF
+#!/sbin/openrc-run
+
+name="caddy"
+description="Caddy web server with automatic HTTPS"
+command="/usr/local/bin/caddy"
+command_args="run --config /etc/caddy/Caddyfile"
+command_background=true
+pidfile="/run/\${RC_SVCNAME}.pid"
+output_log="/var/log/caddy.log"
+error_log="/var/log/caddy.log"
+
+export NETLIFY_TOKEN="$NETLIFY_TOKEN"
+
+depend() {
+    need net
+    after frps
+}
+EOF
+    chmod +x /etc/init.d/caddy
+
+    # Update frps to use internal port (Caddy handles 80/443)
+    sed -i 's/vhost_http_port = 80/vhost_http_port = 8080/' /etc/frp/frps.ini
+    sed -i 's/vhost_https_port = 443/vhost_https_port = 8443/' /etc/frp/frps.ini
+
+    # Enable Caddy
+    rc-update add caddy default
+
+    SSL_ENABLED=true
+    echo "SSL configured with Caddy"
+fi
+
 # Configure firewall with UFW
 echo "Configuring firewall..."
 
@@ -254,6 +345,7 @@ log "=== Tunnel Server Boot Check ==="
 # Cleanup stale PIDs
 cleanup_pid frps
 cleanup_pid tunnel-admin
+cleanup_pid caddy
 
 # Check/start frps
 if ! rc-service frps status >/dev/null 2>&1; then
@@ -273,12 +365,29 @@ elif ! check_port 8000; then
     sleep 3
 fi
 
+# Check/start caddy (if installed)
+if [ -f /etc/init.d/caddy ]; then
+    if ! rc-service caddy status >/dev/null 2>&1; then
+        start_service caddy 443
+    elif ! check_port 443; then
+        log "caddy running but port 443 not listening, restarting..."
+        rc-service caddy restart >/dev/null 2>&1
+        sleep 3
+    fi
+fi
+
 # Final status
 log "Final status:"
 log "  frps: $(rc-service frps status 2>&1 | head -1)"
 log "  tunnel-admin: $(rc-service tunnel-admin status 2>&1 | head -1)"
+if [ -f /etc/init.d/caddy ]; then
+log "  caddy: $(rc-service caddy status 2>&1 | head -1)"
+fi
 log "  Port 7000: $(check_port 7000 && echo 'listening' || echo 'NOT listening')"
 log "  Port 8000: $(check_port 8000 && echo 'listening' || echo 'NOT listening')"
+if [ -f /etc/init.d/caddy ]; then
+log "  Port 443: $(check_port 443 && echo 'listening' || echo 'NOT listening')"
+fi
 log "=== Boot check complete ==="
 EOF
 chmod +x /etc/local.d/tunnel-server.start
@@ -293,7 +402,12 @@ rc-update add tunnel-admin default
 rc-service frps start
 rc-service tunnel-admin start
 
-# Wait for admin to start
+# Start Caddy if SSL enabled
+if [ "$SSL_ENABLED" = "true" ]; then
+    rc-service caddy start
+fi
+
+# Wait for services to start
 sleep 3
 
 # Get server IP
@@ -315,6 +429,13 @@ echo ""
 echo "Client Connection Info:"
 echo "  Server URL: http://$SERVER_IP:7000"
 echo ""
+if [ "$SSL_ENABLED" = "true" ]; then
+echo "SSL Configuration:"
+echo "  Tunnels: https://*.${DOMAIN}"
+echo "  Admin: https://${DOMAIN}"
+echo "  Certificates auto-renew via Let's Encrypt"
+echo ""
+fi
 echo "Next Steps:"
 echo "1. Go to http://$SERVER_IP:8000"
 echo "2. Login with admin credentials (check logs below)"
@@ -331,12 +452,21 @@ echo ""
 echo "Service Management Commands:"
 echo "  rc-service frps status"
 echo "  rc-service tunnel-admin status"
+if [ "$SSL_ENABLED" = "true" ]; then
+echo "  rc-service caddy status"
+fi
 echo "  rc-service frps restart"
 echo "  rc-service tunnel-admin restart"
+if [ "$SSL_ENABLED" = "true" ]; then
+echo "  rc-service caddy restart"
+fi
 echo ""
 echo "Log Files:"
 echo "  /var/log/frps.log"
 echo "  /var/log/tunnel-admin.log"
+if [ "$SSL_ENABLED" = "true" ]; then
+echo "  /var/log/caddy.log"
+fi
 echo "  /var/log/tunnel-boot.log (boot recovery)"
 echo ""
 echo "Admin credentials (check logs):"
@@ -345,4 +475,7 @@ echo ""
 echo "Service Status:"
 rc-service frps status
 rc-service tunnel-admin status
+if [ "$SSL_ENABLED" = "true" ]; then
+rc-service caddy status
+fi
 echo ""
