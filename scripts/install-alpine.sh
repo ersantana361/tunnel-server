@@ -26,39 +26,38 @@ if [ -n "$VAULT_TOKEN" ]; then
         exit 1
     fi
 
-    # Fetch secrets from Vault using HTTP API
+    # Fetch all secrets from Vault in single API call
     echo "Fetching secrets from Vault..."
+    SECRETS=$(curl -sf -H "X-Vault-Token: ${VAULT_TOKEN}" \
+        "${VAULT_ADDR}/v1/secret/data/projects/tunnel-server/env")
 
-    # Netlify API token for SSL certificates
-    NETLIFY_TOKEN=$(curl -sf -H "X-Vault-Token: ${VAULT_TOKEN}" \
-        "${VAULT_ADDR}/v1/secret/data/netlify/api" | jq -r '.data.data.token // empty')
-    if [ -z "$NETLIFY_TOKEN" ]; then
-        echo "Warning: Netlify token not found in Vault, SSL will be disabled"
-    fi
-
-    # frp authentication token
-    FRP_TOKEN=$(curl -sf -H "X-Vault-Token: ${VAULT_TOKEN}" \
-        "${VAULT_ADDR}/v1/secret/data/frp/config" | jq -r '.data.data.token // empty')
-    if [ -z "$FRP_TOKEN" ]; then
-        echo "ERROR: frp token not found in Vault at secret/data/frp/config"
+    if [ -z "$SECRETS" ]; then
+        echo "ERROR: Failed to fetch secrets from Vault"
+        echo "Path: secret/data/projects/tunnel-server/env"
         exit 1
     fi
 
-    # Dashboard password for frp web UI
-    DASH_PASS=$(curl -sf -H "X-Vault-Token: ${VAULT_TOKEN}" \
-        "${VAULT_ADDR}/v1/secret/data/tunnel/dashboard" | jq -r '.data.data.password // empty')
-    if [ -z "$DASH_PASS" ]; then
-        DASH_PASS=$(openssl rand -hex 16)
-        echo "Warning: Dashboard password not in Vault, generated: $DASH_PASS"
+    # Extract individual values
+    NETLIFY_TOKEN=$(echo "$SECRETS" | jq -r '.data.data.NETLIFY_TOKEN // empty')
+    FRP_TOKEN=$(echo "$SECRETS" | jq -r '.data.data.FRP_TOKEN // empty')
+    DOMAIN=$(echo "$SECRETS" | jq -r '.data.data.DOMAIN // empty')
+    DASH_PASS=$(echo "$SECRETS" | jq -r '.data.data.DASH_PASS // empty')
+    JWT_SECRET=$(echo "$SECRETS" | jq -r '.data.data.JWT_SECRET // empty')
+
+    # Validate required secrets
+    if [ -z "$FRP_TOKEN" ]; then
+        echo "ERROR: FRP_TOKEN not found in Vault"
+        exit 1
     fi
 
-    # Domain for tunnel subdomains
-    DOMAIN=$(curl -sf -H "X-Vault-Token: ${VAULT_TOKEN}" \
-        "${VAULT_ADDR}/v1/secret/data/tunnel/config" | jq -r '.data.data.domain // empty')
+    if [ -z "$NETLIFY_TOKEN" ]; then
+        echo "Warning: NETLIFY_TOKEN not found, SSL will be disabled"
+    fi
 
-    # JWT secret for Python admin
-    JWT_SECRET=$(curl -sf -H "X-Vault-Token: ${VAULT_TOKEN}" \
-        "${VAULT_ADDR}/v1/secret/data/tunnel/config" | jq -r '.data.data.jwt_secret // empty')
+    if [ -z "$DASH_PASS" ]; then
+        DASH_PASS=$(openssl rand -hex 16)
+        echo "Warning: DASH_PASS not in Vault, generated: $DASH_PASS"
+    fi
 
     echo "Secrets loaded from Vault"
 
