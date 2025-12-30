@@ -5,9 +5,10 @@ How to configure DNS for your tunnel server while keeping existing services (lik
 ## Table of Contents
 
 - [Common Scenario](#common-scenario)
-- [Solution 1: Dedicated Subdomain (Recommended)](#solution-1-dedicated-subdomain-recommended)
-- [Solution 2: Cloudflare DNS (Best Long-term)](#solution-2-cloudflare-dns-best-long-term)
-- [Solution 3: Netlify DNS Only](#solution-3-netlify-dns-only)
+- [Solution 1: Automatic Netlify DNS (Recommended)](#solution-1-automatic-netlify-dns-recommended)
+- [Solution 2: Dedicated Subdomain (Manual)](#solution-2-dedicated-subdomain-manual)
+- [Solution 3: Cloudflare DNS](#solution-3-cloudflare-dns)
+- [Solution 4: Netlify DNS Manual Records](#solution-4-netlify-dns-manual-records)
 - [Comparison](#comparison)
 - [Quick Decision Guide](#quick-decision-guide)
 
@@ -35,9 +36,90 @@ www.example.com   -> Netlify (your site)     [keep]
 
 ---
 
-## Solution 1: Dedicated Subdomain (Recommended)
+## Solution 1: Automatic Netlify DNS (Recommended)
 
-**Best for**: Quick setup with zero risk to existing services.
+**Best for**: Zero-configuration DNS that updates automatically when the server IP changes.
+
+### Architecture
+
+```
+On server startup:
+  1. Server detects its public IP
+  2. Creates/updates DNS records via Netlify API:
+     - tunnel.ersantana.com -> SERVER_IP
+     - *.tunnel.ersantana.com -> SERVER_IP
+  3. If IP hasn't changed, no API calls made
+```
+
+### Prerequisites
+
+1. Domain managed by Netlify DNS (ersantana.com)
+2. Netlify API token (Personal Access Token)
+3. DNS zone ID for your domain
+
+### Step 1: Get Netlify API Token
+
+1. Go to [Netlify User Settings](https://app.netlify.com/user/applications)
+2. Under **Personal access tokens**, click **New access token**
+3. Give it a name like "tunnel-server-dns"
+4. Copy the token
+
+### Step 2: Get DNS Zone ID
+
+```bash
+curl -H "Authorization: Bearer YOUR_TOKEN" \
+  https://api.netlify.com/api/v1/dns_zones | jq '.[] | {name, id}'
+
+# Output:
+# { "name": "ersantana.com", "id": "5f1234567890abcdef123456" }
+```
+
+### Step 3: Configure Environment
+
+Add to 1Password (`Tunnel/tunnel-server`):
+- `netlify-api-token` - Your Netlify API token
+- `netlify-dns-zone-id` - The zone ID from step 2
+
+Or set environment variables:
+```bash
+export NETLIFY_API_TOKEN="your_token"
+export NETLIFY_DNS_ZONE_ID="your_zone_id"
+export TUNNEL_DOMAIN="tunnel.ersantana.com"
+```
+
+### Step 4: Deploy
+
+The server automatically creates DNS records on startup:
+```bash
+# Startup log shows:
+# INFO: Setting up DNS records for tunnel.ersantana.com pointing to 1.2.3.4
+# INFO: Created DNS record: tunnel.ersantana.com -> 1.2.3.4
+# INFO: Created DNS record: *.tunnel.ersantana.com -> 1.2.3.4
+# INFO: DNS setup complete
+```
+
+### Result
+
+Your tunnels will use URLs like:
+- `api.tunnel.ersantana.com`
+- `app.tunnel.ersantana.com`
+- `staging.tunnel.ersantana.com`
+
+**Pros**:
+- Zero manual DNS configuration
+- Automatically updates when server IP changes
+- Works with Vultr, DigitalOcean, AWS, etc.
+- No DNS propagation wait (records created instantly)
+
+**Cons**:
+- Requires Netlify for DNS management
+- Needs API token configuration
+
+---
+
+## Solution 2: Dedicated Subdomain (Manual)
+
+**Best for**: Quick manual setup with zero risk to existing services.
 
 ### Architecture
 
@@ -116,9 +198,9 @@ Your tunnels will use URLs like:
 
 ---
 
-## Solution 2: Cloudflare DNS (Best Long-term)
+## Solution 3: Cloudflare DNS
 
-**Best for**: Cleaner URLs (`api.example.com`) with extra features.
+**Best for**: Cleaner URLs (`api.example.com`) with extra features like firewall and CDN.
 
 ### Architecture
 
@@ -201,9 +283,9 @@ Clean tunnel URLs:
 
 ---
 
-## Solution 3: Netlify DNS Only
+## Solution 4: Netlify DNS Manual Records
 
-**Best for**: Keeping everything in Netlify, but with limited flexibility.
+**Best for**: Keeping everything in Netlify without API integration, but with limited flexibility.
 
 ### Limitation
 
@@ -260,33 +342,40 @@ custom_domains = api.example.com
 
 ## Comparison
 
-| Feature | Solution 1 | Solution 2 | Solution 3 |
-|---------|------------|------------|------------|
-| Setup Time | 10 min | 1-2 hours | 30 min |
-| DNS Migration | None | Yes (24-48h) | None |
-| URL Format | `*.tunnel.domain` | `*.domain` | `sub.domain` |
-| Wildcard Support | Yes | Yes | No |
-| Risk to Site | Zero | Low | Medium |
-| Extra Features | None | Firewall, SSL, CDN | None |
-| Flexibility | High | Very High | Low |
+| Feature | Solution 1 | Solution 2 | Solution 3 | Solution 4 |
+|---------|------------|------------|------------|------------|
+| Setup Time | 5 min | 10 min | 1-2 hours | 30 min |
+| DNS Migration | None | None | Yes (24-48h) | None |
+| URL Format | `*.tunnel.domain` | `*.tunnel.domain` | `*.domain` | `sub.domain` |
+| Wildcard Support | Yes | Yes | Yes | No |
+| Auto IP Update | Yes | No | No | No |
+| Risk to Site | Zero | Zero | Low | Medium |
+| Extra Features | Auto DNS | None | Firewall, SSL, CDN | None |
+| Flexibility | High | High | Very High | Low |
 
 ---
 
 ## Quick Decision Guide
 
-### Choose Solution 1 if:
-- You want to set up quickly
-- You don't want to risk your existing site
+### Choose Solution 1 (Automatic Netlify DNS) if:
+- You use Netlify DNS for your domain
+- You want zero-configuration DNS
+- You want automatic IP updates on server restart
+- You're using dynamic IP or frequently redeploying
+
+### Choose Solution 2 (Dedicated Subdomain) if:
+- You want manual control over DNS
+- You don't want to store API tokens
 - Slightly longer URLs are acceptable
 
-### Choose Solution 2 if:
+### Choose Solution 3 (Cloudflare) if:
 - You want clean URLs (`api.example.com`)
 - You can wait 24-48 hours for DNS propagation
 - You want extra features (firewall, CDN)
 
-### Choose Solution 3 if:
+### Choose Solution 4 (Manual Netlify) if:
 - You only need a few specific subdomains
-- You want to keep everything in Netlify
+- You want to keep everything in Netlify without API
 - You don't need wildcard support
 
 ---

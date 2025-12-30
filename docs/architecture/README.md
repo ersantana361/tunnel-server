@@ -90,7 +90,8 @@ app/
 ├── services/                # Business Logic
 │   ├── auth.py              # JWT, password hashing
 │   ├── tunnel.py            # Config generation, URLs
-│   └── activity.py          # Activity logging
+│   ├── activity.py          # Activity logging
+│   └── dns.py               # Netlify DNS API integration
 │
 ├── routes/                  # API Routes
 │   ├── auth.py              # POST /api/auth/login
@@ -121,6 +122,27 @@ The application integrates with [frp (Fast Reverse Proxy)](https://github.com/fa
 | Admin App | User management | 8000 |
 
 **Note**: The admin app and frps are separate processes. The admin app manages users and tokens, while frps handles actual tunnel connections.
+
+### DNS Service Integration
+
+The application can automatically manage DNS records via Netlify API:
+
+```
+On Startup (lifespan):
+  1. init_db() - Initialize database
+  2. setup_tunnel_dns() - Create/update DNS records
+     ├── Get public IP (api.ipify.org)
+     ├── Create A record: tunnel.ersantana.com → IP
+     └── Create A record: *.tunnel.ersantana.com → IP
+```
+
+| Service | Purpose |
+|---------|---------|
+| `dns.py` | Netlify API integration |
+| `get_public_ip()` | Detect server's public IP |
+| `setup_tunnel_dns()` | Create/update DNS records on startup |
+
+**Note**: DNS setup is optional. If `NETLIFY_API_TOKEN` or `NETLIFY_DNS_ZONE_ID` are not set, the server skips DNS configuration.
 
 ---
 

@@ -32,7 +32,8 @@ tunnel-server/
 │   ├── services/
 │   │   ├── auth.py           # JWT, password hashing
 │   │   ├── tunnel.py         # frpc config, URL generation
-│   │   └── activity.py       # Activity logging
+│   │   ├── activity.py       # Activity logging
+│   │   └── dns.py            # Netlify DNS API integration
 │   └── templates/
 │       └── dashboard.html    # Admin dashboard HTML
 ├── tests/                     # Test suite
@@ -122,13 +123,16 @@ Environment variables:
 - `SERVER_DOMAIN` - Domain for public URLs (read from frps.ini if not set)
 - `ADMIN_PASSWORD` - Admin password (from 1Password, auto-generated if not set)
 - `ADMIN_TOKEN` - Admin tunnel token (from 1Password, auto-generated if not set)
+- `NETLIFY_API_TOKEN` - Netlify API token for automatic DNS record creation
+- `NETLIFY_DNS_ZONE_ID` - Netlify DNS zone ID for ersantana.com
+- `TUNNEL_DOMAIN` - Tunnel domain (defaults to `tunnel.ersantana.com`)
 
 ### 1Password Integration
 
 Secrets are managed via 1Password CLI using the `op://` URI scheme:
 - Vault: `Tunnel`
 - Item: `tunnel-server`
-- Fields: `jwt-secret`, `admin-password`, `admin-token`, `frp-token`, `domain`
+- Fields: `jwt-secret`, `admin-password`, `admin-token`, `frp-token`, `domain`, `netlify-api-token`, `netlify-dns-zone-id`
 
 Key files:
 - `.env.1password` - Template with `op://` secret references

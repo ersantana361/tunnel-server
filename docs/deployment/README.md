@@ -137,6 +137,7 @@ The Vultr startup script automatically:
 - Configures frp server
 - Sets up Caddy for SSL (if Netlify token provided)
 - Creates OpenRC services
+- Configures automatic DNS via Netlify API (if configured)
 - Starts all services
 
 ### Verifying Deployment
@@ -500,32 +501,53 @@ certbot --nginx -d admin.yourdomain.com
 
 ## DNS Configuration
 
-### A Records
+### Automatic DNS (Recommended)
 
-Point your domain to your server's IP:
+The server can automatically create and update DNS records on startup via Netlify API:
 
 ```
-Type    Name    Value              TTL
-A       @       YOUR_SERVER_IP     300
-A       *       YOUR_SERVER_IP     300
-A       admin   YOUR_SERVER_IP     300
+tunnel.ersantana.com     → SERVER_IP
+*.tunnel.ersantana.com   → SERVER_IP (wildcard)
+```
+
+To enable, add these to 1Password (`Tunnel/tunnel-server`):
+- `netlify-api-token` - Your Netlify personal access token
+- `netlify-dns-zone-id` - Your DNS zone ID
+
+Get your zone ID:
+```bash
+curl -H "Authorization: Bearer YOUR_TOKEN" \
+  https://api.netlify.com/api/v1/dns_zones | jq '.[] | {name, id}'
+```
+
+The server automatically detects its public IP and creates/updates records on each startup.
+
+### Manual A Records
+
+If not using automatic DNS, point your domain to your server's IP:
+
+```
+Type    Name      Value              TTL
+A       tunnel    YOUR_SERVER_IP     300
+A       *.tunnel  YOUR_SERVER_IP     300
+A       admin     YOUR_SERVER_IP     300
 ```
 
 ### Explanation
 
 | Record | Purpose |
 |--------|---------|
-| `@ → IP` | Root domain |
-| `* → IP` | Wildcard for tunnel subdomains |
+| `tunnel → IP` | Main tunnel domain |
+| `*.tunnel → IP` | Wildcard for tunnel subdomains |
 | `admin → IP` | Admin dashboard subdomain |
 
 ### Verification
 
 ```bash
 # Check DNS propagation
-dig yourdomain.com
+dig tunnel.yourdomain.com
 dig admin.yourdomain.com
-dig test.yourdomain.com
+dig test.tunnel.yourdomain.com
 ```
 
 ---

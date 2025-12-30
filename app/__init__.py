@@ -9,6 +9,7 @@ from contextlib import asynccontextmanager
 
 from .database import init_db
 from .routes import auth, users, tunnels, stats
+from .services.dns import setup_tunnel_dns
 
 
 def get_dashboard_html() -> str:
@@ -20,8 +21,9 @@ def get_dashboard_html() -> str:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Application lifespan - initialize database on startup"""
+    """Application lifespan - initialize database and DNS on startup"""
     init_db()
+    setup_tunnel_dns()
     yield
 
 

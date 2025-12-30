@@ -71,7 +71,14 @@ DASH_PASSWORD=$(openssl rand -hex 16)
 # Prompt for optional values
 echo ""
 read -p "Enter domain (e.g., tunnel.example.com) [leave empty to use IP]: " DOMAIN
-read -p "Enter Netlify API token for SSL [leave empty to skip]: " NETLIFY_TOKEN
+read -p "Enter Netlify API token [leave empty to skip]: " NETLIFY_TOKEN
+if [ -n "$NETLIFY_TOKEN" ]; then
+    echo ""
+    echo "To get your DNS Zone ID, run:"
+    echo "  curl -H 'Authorization: Bearer YOUR_TOKEN' https://api.netlify.com/api/v1/dns_zones | jq '.[] | {name, id}'"
+    echo ""
+    read -p "Enter Netlify DNS Zone ID for automatic DNS [leave empty to skip]: " NETLIFY_DNS_ZONE_ID
+fi
 read -p "Enter ACME email for SSL certs [admin@localhost]: " ACME_EMAIL
 ACME_EMAIL="${ACME_EMAIL:-admin@localhost}"
 
@@ -104,7 +111,8 @@ TEMPLATE=$(cat <<EOF
     {"id": "frp-token", "type": "CONCEALED", "label": "frp-token", "value": "$FRP_TOKEN"},
     {"id": "dash-password", "type": "CONCEALED", "label": "dash-password", "value": "$DASH_PASSWORD"},
     {"id": "domain", "type": "STRING", "label": "domain", "value": "$DOMAIN"},
-    {"id": "netlify-token", "type": "CONCEALED", "label": "netlify-token", "value": "$NETLIFY_TOKEN"},
+    {"id": "netlify-api-token", "type": "CONCEALED", "label": "netlify-api-token", "value": "$NETLIFY_TOKEN"},
+    {"id": "netlify-dns-zone-id", "type": "STRING", "label": "netlify-dns-zone-id", "value": "$NETLIFY_DNS_ZONE_ID"},
     {"id": "acme-email", "type": "STRING", "label": "acme-email", "value": "$ACME_EMAIL"}
   ]
 }
@@ -122,18 +130,21 @@ echo "Vault: $VAULT"
 echo "Item:  $ITEM_NAME"
 echo ""
 echo "Generated secrets:"
-echo "  jwt-secret:     ****${JWT_SECRET: -8}"
-echo "  admin-password: $ADMIN_PASSWORD"
-echo "  admin-token:    ****${ADMIN_TOKEN: -8}"
-echo "  frp-token:      ****${FRP_TOKEN: -8}"
-echo "  dash-password:  $DASH_PASSWORD"
+echo "  jwt-secret:         ****${JWT_SECRET: -8}"
+echo "  admin-password:     $ADMIN_PASSWORD"
+echo "  admin-token:        ****${ADMIN_TOKEN: -8}"
+echo "  frp-token:          ****${FRP_TOKEN: -8}"
+echo "  dash-password:      $DASH_PASSWORD"
 if [ -n "$DOMAIN" ]; then
-echo "  domain:         $DOMAIN"
+echo "  domain:             $DOMAIN"
 fi
 if [ -n "$NETLIFY_TOKEN" ]; then
-echo "  netlify-token:  ****${NETLIFY_TOKEN: -8}"
+echo "  netlify-api-token:  ****${NETLIFY_TOKEN: -8}"
 fi
-echo "  acme-email:     $ACME_EMAIL"
+if [ -n "$NETLIFY_DNS_ZONE_ID" ]; then
+echo "  netlify-dns-zone-id: $NETLIFY_DNS_ZONE_ID"
+fi
+echo "  acme-email:         $ACME_EMAIL"
 echo ""
 echo "Next steps:"
 echo ""

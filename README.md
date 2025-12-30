@@ -149,22 +149,43 @@ Your local port 5000 is now accessible at `http://myapp.your-server-domain.com`
 
 ## DNS Configuration
 
-For subdomain-based tunnels, configure wildcard DNS:
+### Automatic DNS (Recommended)
+
+The server automatically creates DNS records on startup via Netlify API:
+- `tunnel.ersantana.com` → Server IP
+- `*.tunnel.ersantana.com` → Server IP (wildcard)
+
+To enable, set these environment variables (or add to 1Password):
+```bash
+NETLIFY_API_TOKEN=your_netlify_token
+NETLIFY_DNS_ZONE_ID=your_zone_id
+TUNNEL_DOMAIN=tunnel.ersantana.com
+```
+
+Get your zone ID:
+```bash
+curl -H "Authorization: Bearer YOUR_TOKEN" \
+  https://api.netlify.com/api/v1/dns_zones | jq '.[] | {name, id}'
+```
+
+### Manual DNS
+
+For manual DNS setup, configure wildcard DNS:
 
 ```
-Type    Name    Value
-A       @       YOUR_SERVER_IP
-A       *       YOUR_SERVER_IP
+Type    Name      Value
+A       tunnel    YOUR_SERVER_IP
+A       *.tunnel  YOUR_SERVER_IP
 ```
 
 This enables:
-- `yourdomain.com` - main domain
-- `*.yourdomain.com` - all subdomain tunnels
+- `tunnel.yourdomain.com` - main tunnel domain
+- `*.tunnel.yourdomain.com` - all subdomain tunnels
 
 Also configure `subdomain_host` in `/etc/frp/frps.ini`:
 
 ```ini
-subdomain_host = yourdomain.com
+subdomain_host = tunnel.yourdomain.com
 ```
 
 ## API Endpoints
@@ -201,7 +222,8 @@ tunnel-server/
 │   ├── services/
 │   │   ├── auth.py           # JWT, password hashing
 │   │   ├── tunnel.py         # Config generation
-│   │   └── activity.py       # Activity logging
+│   │   ├── activity.py       # Activity logging
+│   │   └── dns.py            # Netlify DNS API integration
 │   └── templates/
 │       └── dashboard.html    # Admin dashboard
 ├── tests/                    # Test suite
@@ -225,6 +247,9 @@ tunnel-server/
 | `SERVER_DOMAIN` | Domain for public URLs | Read from frps.ini |
 | `ADMIN_PASSWORD` | Admin password (from 1Password) | Auto-generated |
 | `ADMIN_TOKEN` | Admin tunnel token (from 1Password) | Auto-generated |
+| `NETLIFY_API_TOKEN` | Netlify API token for DNS | None |
+| `NETLIFY_DNS_ZONE_ID` | Netlify DNS zone ID | None |
+| `TUNNEL_DOMAIN` | Tunnel domain for DNS records | `tunnel.ersantana.com` |
 
 ### 1Password Integration
 
