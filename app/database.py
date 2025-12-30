@@ -5,7 +5,7 @@ import sqlite3
 import os
 import secrets
 import bcrypt
-from .config import DB_FILE
+from .config import DB_FILE, ADMIN_PASSWORD, ADMIN_TOKEN
 
 
 def get_db():
@@ -87,22 +87,43 @@ def init_db():
     # Create default admin if not exists
     cursor.execute("SELECT COUNT(*) FROM users WHERE is_admin = 1")
     if cursor.fetchone()[0] == 0:
-        admin_password = secrets.token_urlsafe(16)
-        password_hash = bcrypt.hashpw(admin_password.encode(), bcrypt.gensalt())
-        admin_token = secrets.token_hex(32)
+        # Use provided credentials from 1Password (via env vars) or auto-generate
+        if ADMIN_PASSWORD and ADMIN_TOKEN:
+            # Credentials provided via environment (e.g., from 1Password)
+            admin_password = ADMIN_PASSWORD
+            admin_token = ADMIN_TOKEN
+            password_hash = bcrypt.hashpw(admin_password.encode(), bcrypt.gensalt())
 
-        cursor.execute("""
-            INSERT INTO users (email, password_hash, token, is_admin, max_tunnels)
-            VALUES (?, ?, ?, 1, 999)
-        """, ("admin@localhost", password_hash, admin_token))
+            cursor.execute("""
+                INSERT INTO users (email, password_hash, token, is_admin, max_tunnels)
+                VALUES (?, ?, ?, 1, 999)
+            """, ("admin@localhost", password_hash, admin_token))
 
-        print(f"\n{'='*60}")
-        print("ADMIN CREDENTIALS - SAVE THESE!")
-        print(f"{'='*60}")
-        print(f"Email: admin@localhost")
-        print(f"Password: {admin_password}")
-        print(f"Token: {admin_token}")
-        print(f"{'='*60}\n")
+            print(f"\n{'='*60}")
+            print("Admin account created with provided credentials")
+            print(f"{'='*60}")
+            print(f"Email: admin@localhost")
+            print(f"Password: (from ADMIN_PASSWORD env var)")
+            print(f"Token: (from ADMIN_TOKEN env var)")
+            print(f"{'='*60}\n")
+        else:
+            # Auto-generate credentials (legacy behavior)
+            admin_password = secrets.token_urlsafe(16)
+            password_hash = bcrypt.hashpw(admin_password.encode(), bcrypt.gensalt())
+            admin_token = secrets.token_hex(32)
+
+            cursor.execute("""
+                INSERT INTO users (email, password_hash, token, is_admin, max_tunnels)
+                VALUES (?, ?, ?, 1, 999)
+            """, ("admin@localhost", password_hash, admin_token))
+
+            print(f"\n{'='*60}")
+            print("ADMIN CREDENTIALS - SAVE THESE!")
+            print(f"{'='*60}")
+            print(f"Email: admin@localhost")
+            print(f"Password: {admin_password}")
+            print(f"Token: {admin_token}")
+            print(f"{'='*60}\n")
 
     conn.commit()
     conn.close()

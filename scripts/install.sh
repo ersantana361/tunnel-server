@@ -1,198 +1,128 @@
-#!/bin/bash
-# Tunnel Server Installation Script
-# Installs frp server + admin dashboard with user management
+#!/bin/sh
+# Phase 1: Install tunnel-server with 1Password integration (Alpine Linux)
+# Usage: wget -qO- https://raw.githubusercontent.com/ersantana361/tunnel-server/main/scripts/install.sh | sh
 
 set -e
 
-echo "🚀 Installing Tunnel Server with Admin Dashboard..."
+INSTALL_DIR="${INSTALL_DIR:-/opt/tunnel-server}"
+REPO_URL="https://github.com/ersantana361/tunnel-server.git"
+OP_VERSION="${OP_VERSION:-2.30.0}"
 
-# Check root
-if [ "$EUID" -ne 0 ]; then 
-    echo "Please run as root: sudo ./install.sh"
-    exit 1
-fi
+echo "==> Installing tunnel-server to ${INSTALL_DIR}"
 
-# Update system
-echo "Updating system..."
-apt update && apt upgrade -y
+# 1. Install system dependencies
+echo "==> Installing system dependencies..."
+apk update
+apk add python3 py3-pip py3-virtualenv git curl unzip
 
-# Install dependencies
-echo "Installing dependencies..."
-apt install -y wget tar ufw python3 python3-pip python3-venv sqlite3
-
-# Install frp server
-echo "Installing frp server..."
-FRP_VERSION="0.52.3"
-cd /tmp
-wget https://github.com/fatedier/frp/releases/download/v${FRP_VERSION}/frp_${FRP_VERSION}_linux_amd64.tar.gz
-tar -xzf frp_${FRP_VERSION}_linux_amd64.tar.gz
-cd frp_${FRP_VERSION}_linux_amd64
-cp frps /usr/local/bin/
-chmod +x /usr/local/bin/frps
-cd /
-rm -rf /tmp/frp_*
-
-# Create directories
-mkdir -p /opt/tunnel-server
-mkdir -p /var/lib/tunnel-server
-mkdir -p /etc/frp
-
-# Get configuration
-read -p "Enter your domain name (or leave empty to use IP): " DOMAIN
-if [ -z "$DOMAIN" ]; then
-    DOMAIN=$(curl -s ifconfig.me)
-    echo "Using IP: $DOMAIN"
-fi
-
-# Generate frps config
-cat > /etc/frp/frps.ini <<EOF
-[common]
-bind_port = 7000
-vhost_http_port = 80
-vhost_https_port = 443
-subdomain_host = $DOMAIN
-
-# Logging
-log_file = /var/log/frps.log
-log_level = info
-
-# Connection limits
-max_pool_count = 5
-EOF
-
-# Create frps systemd service
-cat > /etc/systemd/system/frps.service <<EOF
-[Unit]
-Description=frp server
-After=network.target
-
-[Service]
-Type=simple
-User=root
-Restart=on-failure
-RestartSec=5s
-ExecStart=/usr/local/bin/frps -c /etc/frp/frps.ini
-LimitNOFILE=1048576
-
-[Install]
-WantedBy=multi-user.target
-EOF
-
-# Install Python dependencies for admin dashboard
-echo "Installing Python dependencies..."
-cd /opt/tunnel-server
-cat > requirements.txt <<EOF
-fastapi==0.109.0
-uvicorn[standard]==0.27.0
-pydantic==2.5.3
-pydantic[email]==2.5.3
-python-jose[cryptography]==3.3.0
-passlib[bcrypt]==1.7.4
-bcrypt==4.1.2
-python-multipart==0.0.6
-PyJWT
-EOF
-
-pip3 install -r requirements.txt --break-system-packages
-
-# Copy application files
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
-
-# Create app directories
-mkdir -p /opt/tunnel-server/app/models
-mkdir -p /opt/tunnel-server/app/routes
-mkdir -p /opt/tunnel-server/app/services
-mkdir -p /opt/tunnel-server/app/templates
-
-# Copy main entry point and app package
-if [ -f "$PROJECT_DIR/main.py" ]; then
-    cp "$PROJECT_DIR/main.py" /opt/tunnel-server/
-    cp -r "$PROJECT_DIR/app/"* /opt/tunnel-server/app/
-    echo "Application files copied"
-elif [ -f "./main.py" ]; then
-    cp ./main.py /opt/tunnel-server/
-    cp -r ./app/* /opt/tunnel-server/app/
-    echo "Application files copied"
+# 2. Install 1Password CLI (Alpine uses static binary)
+echo "==> Installing 1Password CLI v${OP_VERSION}..."
+if ! command -v op >/dev/null 2>&1; then
+    curl -sSfLo /tmp/op.zip "https://cache.agilebits.com/dist/1P/op2/pkg/v${OP_VERSION}/op_linux_amd64_v${OP_VERSION}.zip"
+    unzip -o /tmp/op.zip -d /usr/local/bin
+    rm /tmp/op.zip
+    chmod +x /usr/local/bin/op
+    echo "    1Password CLI installed: $(op --version)"
 else
-    echo "Warning: main.py not found"
-    echo "Please copy main.py and app/ folder to /opt/tunnel-server/"
+    echo "    1Password CLI already installed: $(op --version)"
 fi
 
-# Create admin systemd service
-cat > /etc/systemd/system/tunnel-admin.service <<EOF
-[Unit]
-Description=Tunnel Server Admin Dashboard
-After=network.target
+# 3. Clone repository
+echo "==> Cloning repository..."
+if [ -d "$INSTALL_DIR" ]; then
+    echo "    Directory exists, pulling latest..."
+    cd "$INSTALL_DIR"
+    git pull
+else
+    git clone "$REPO_URL" "$INSTALL_DIR"
+    cd "$INSTALL_DIR"
+fi
 
-[Service]
-Type=simple
-User=root
-WorkingDirectory=/opt/tunnel-server
-ExecStart=/usr/bin/python3 /opt/tunnel-server/main.py
-Restart=on-failure
-RestartSec=5s
-Environment="JWT_SECRET=$(openssl rand -hex 32)"
-Environment="DB_PATH=/var/lib/tunnel-server/tunnel.db"
+# 4. Create virtual environment and install Python deps
+echo "==> Setting up Python virtual environment..."
+python3 -m venv venv
+. venv/bin/activate
+pip install --upgrade pip
+pip install -r requirements.txt
 
-[Install]
-WantedBy=multi-user.target
+# 5. Create .env.1password template
+echo "==> Creating .env.1password template..."
+cat > .env.1password << 'EOF'
+JWT_SECRET=op://Tunnel/tunnel-server/jwt-secret
+ADMIN_PASSWORD=op://Tunnel/tunnel-server/admin-password
+ADMIN_TOKEN=op://Tunnel/tunnel-server/admin-token
+DB_PATH=/var/lib/tunnel-server/tunnel.db
 EOF
 
-# Configure firewall
-echo "Configuring firewall..."
-ufw allow 22/tcp
-ufw allow 80/tcp
-ufw allow 443/tcp
-ufw allow 7000/tcp
-ufw allow 8000/tcp  # Admin dashboard
-ufw --force enable
+# 6. Create data directory
+echo "==> Creating data directory..."
+mkdir -p /var/lib/tunnel-server
+chmod 700 /var/lib/tunnel-server
 
-# Start services
-systemctl daemon-reload
-systemctl enable frps tunnel-admin
-systemctl start frps
-systemctl start tunnel-admin
+# 7. Create OpenRC service
+echo "==> Creating OpenRC service..."
+cat > /etc/init.d/tunnel-server << 'EOF'
+#!/sbin/openrc-run
 
-# Wait for admin to start
-sleep 3
+name="tunnel-server"
+description="Tunnel Server with 1Password secrets"
 
-# Get server IP
-SERVER_IP=$(curl -s ifconfig.me)
+command="/opt/tunnel-server/scripts/start.sh"
+command_background="yes"
+pidfile="/run/${RC_SVCNAME}.pid"
+output_log="/var/log/tunnel-server.log"
+error_log="/var/log/tunnel-server.log"
+
+depend() {
+    need net
+    after firewall
+}
+
+start_pre() {
+    # Source 1Password token if available
+    if [ -f /etc/profile.d/1password.sh ]; then
+        . /etc/profile.d/1password.sh
+    fi
+
+    # Verify 1Password token is set
+    if [ -z "$OP_SERVICE_ACCOUNT_TOKEN" ]; then
+        eerror "OP_SERVICE_ACCOUNT_TOKEN not set!"
+        eerror "Create /etc/profile.d/1password.sh with:"
+        eerror "  export OP_SERVICE_ACCOUNT_TOKEN=\"ops_...\""
+        return 1
+    fi
+}
+EOF
+
+chmod +x /etc/init.d/tunnel-server
+
+# 8. Make start script executable
+chmod +x "$INSTALL_DIR/scripts/start.sh"
 
 echo ""
-echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-echo "✅ INSTALLATION COMPLETE!"
-echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "=============================================="
+echo "  Installation complete!"
+echo "=============================================="
 echo ""
-echo "Server Information:"
-echo "  IP: $SERVER_IP"
-echo "  Domain: $DOMAIN"
+echo "Next steps:"
 echo ""
-echo "Admin Dashboard:"
-echo "  URL: http://$SERVER_IP:8000"
-echo "  Check logs for admin credentials"
+echo "  1. Create 1Password service account:"
+echo "     https://my.1password.com → Settings → Service Accounts"
 echo ""
-echo "Client Connection Info:"
-echo "  Server URL: http://$SERVER_IP:7000"
+echo "  2. Create 'Tunnel' vault with 'tunnel-server' item containing:"
+echo "     - jwt-secret     (generate: openssl rand -hex 32)"
+echo "     - admin-password (your chosen password)"
+echo "     - admin-token    (generate: openssl rand -hex 32)"
 echo ""
-echo "Next Steps:"
-echo "1. Go to http://$SERVER_IP:8000"
-echo "2. Login with admin credentials (check logs below)"
-echo "3. Create users for your clients"
-echo "4. Give clients their tokens"
+echo "  3. Set service account token:"
+echo "     cat > /etc/profile.d/1password.sh << 'EOF'"
+echo "     export OP_SERVICE_ACCOUNT_TOKEN=\"ops_your_token_here\""
+echo "     EOF"
+echo "     source /etc/profile.d/1password.sh"
 echo ""
-echo "DNS Setup (if using domain):"
-echo "  Type    Name    Value"
-echo "  A       @       $SERVER_IP"
-echo "  A       *       $SERVER_IP"
+echo "  4. Start the service:"
+echo "     rc-service tunnel-server start"
+echo "     rc-update add tunnel-server default"
 echo ""
-echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-echo ""
-echo "Admin credentials (check logs):"
-journalctl -u tunnel-admin -n 50 --no-pager | grep -A 5 "ADMIN CREDENTIALS"
-echo ""
-echo "Service Status:"
-systemctl status frps --no-pager -l
-systemctl status tunnel-admin --no-pager -l
+echo "  5. Access dashboard at http://your-server:8000"
 echo ""
