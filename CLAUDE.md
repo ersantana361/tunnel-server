@@ -43,8 +43,11 @@ tunnel-server/
 │   └── test_services/
 ├── scripts/
 │   ├── deploy.sh             # Deploy to server via SCP
-│   ├── install.sh            # Ubuntu/Debian installer
-│   └── install-alpine.sh     # Alpine Linux installer
+│   ├── install.sh            # Alpine installer with 1Password
+│   ├── start.sh              # Start app with 1Password secrets
+│   ├── setup-1password.sh    # Generate & save secrets to 1Password
+│   └── vultr-startup.sh      # Vultr cloud-init script
+├── .env.1password            # 1Password secret references template
 └── docs/                      # Documentation
 ```
 
@@ -56,7 +59,6 @@ pip install -r requirements.txt
 python3 main.py
 # Runs on http://localhost:8000
 # Creates ./tunnel.db in current directory
-# Admin credentials printed to console on first run
 
 # Or with uvicorn for auto-reload
 uvicorn main:app --reload
@@ -64,19 +66,19 @@ uvicorn main:app --reload
 # Run tests
 pytest
 
-# Set up SSH key for password-free deploys (one-time)
-ssh-copy-id root@your-server-ip
+# With 1Password secrets (recommended)
+./scripts/setup-1password.sh  # One-time setup
+op run --env-file=.env.1password -- python3 main.py
+# Or use: ./scripts/start.sh
 
-# Deploy to production server
-export TUNNEL_SERVER_IP=your-server-ip
-./scripts/deploy.sh
+# Production deployment (Vultr with 1Password)
+# 1. Run ./scripts/setup-1password.sh locally
+# 2. Create 1Password service account
+# 3. Paste token in scripts/vultr-startup.sh
+# 4. Deploy as Vultr startup script
 
-# Production installation (on server)
-# Ubuntu/Debian
+# Manual production installation (on Alpine server)
 sudo ./scripts/install.sh
-
-# Alpine Linux
-sudo ./scripts/install-alpine.sh
 ```
 
 ## Architecture
@@ -118,7 +120,20 @@ Environment variables:
 - `DB_PATH` - SQLite database path (defaults to `./tunnel.db`)
 - `FRPS_CONFIG` - frp server config path (defaults to `/etc/frp/frps.ini`)
 - `SERVER_DOMAIN` - Domain for public URLs (read from frps.ini if not set)
+- `ADMIN_PASSWORD` - Admin password (from 1Password, auto-generated if not set)
+- `ADMIN_TOKEN` - Admin tunnel token (from 1Password, auto-generated if not set)
 
-Default admin credentials are printed to console on first run.
+### 1Password Integration
 
-For production, set `DB_PATH=/var/lib/tunnel-server/tunnel.db` or use `install.sh` which configures this automatically.
+Secrets are managed via 1Password CLI using the `op://` URI scheme:
+- Vault: `Tunnel`
+- Item: `tunnel-server`
+- Fields: `jwt-secret`, `admin-password`, `admin-token`, `frp-token`, `domain`
+
+Key files:
+- `.env.1password` - Template with `op://` secret references
+- `scripts/setup-1password.sh` - Generate secrets and save to 1Password
+- `scripts/start.sh` - Run app with `op run` secret injection
+- `scripts/vultr-startup.sh` - Vultr cloud-init with 1Password
+
+For production, use `install.sh` which configures 1Password integration automatically.

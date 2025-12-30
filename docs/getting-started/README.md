@@ -47,6 +47,17 @@ This guide walks you through setting up the Tunnel Server, from local developmen
    sqlite3 --version
    ```
 
+4. **1Password CLI** (recommended for secrets management)
+   ```bash
+   # macOS
+   brew install 1password-cli
+
+   # Linux - see https://developer.1password.com/docs/cli/get-started
+
+   # Verify installation
+   op --version
+   ```
+
 ---
 
 ## Local Development Setup
@@ -146,9 +157,24 @@ You'll see the login page for the admin dashboard.
 
 ## Understanding Admin Credentials
 
-### Why Credentials Are Auto-Generated
+### Recommended: Use 1Password
 
-For security reasons, the admin password and token are randomly generated on first run. This ensures:
+The best way to manage credentials is with 1Password CLI:
+
+```bash
+# Generate secrets and save to 1Password (one-time)
+./scripts/setup-1password.sh
+
+# Run with 1Password secret injection
+./scripts/start.sh
+# Or: op run --env-file=.env.1password -- python3 main.py
+```
+
+This stores credentials securely in your 1Password vault (`Tunnel` → `tunnel-server`).
+
+### Alternative: Auto-Generated Credentials
+
+If not using 1Password, credentials are randomly generated on first run:
 
 1. **No default passwords**: Every installation has unique credentials
 2. **Secure tokens**: 64-character hex tokens are cryptographically secure
@@ -164,7 +190,9 @@ For security reasons, the admin password and token are randomly generated on fir
 
 ### Saving Your Credentials
 
-**Important**: The credentials are only shown once at first run. Save them immediately!
+**With 1Password (recommended)**: Credentials are automatically saved to your vault.
+
+**Without 1Password**: The credentials are only shown once at first run. Save them immediately!
 
 ```bash
 # Option 1: Redirect output to a file

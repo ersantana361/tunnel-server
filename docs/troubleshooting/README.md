@@ -5,6 +5,7 @@ Comprehensive guide for diagnosing and resolving common issues with the Tunnel S
 ## Table of Contents
 
 - [Quick Diagnostics](#quick-diagnostics)
+- [1Password Issues](#1password-issues)
 - [Installation Issues](#installation-issues)
 - [Startup Issues](#startup-issues)
 - [Authentication Issues](#authentication-issues)
@@ -40,6 +41,90 @@ curl -I http://localhost:8000
 
 # View recent logs
 journalctl -u tunnel-admin -n 50 --no-pager
+```
+
+---
+
+## 1Password Issues
+
+### OP_SERVICE_ACCOUNT_TOKEN Not Set
+
+**Symptom**: Service fails to start, logs show "OP_SERVICE_ACCOUNT_TOKEN not set"
+
+**Solution**:
+```bash
+# Check if token is set
+echo $OP_SERVICE_ACCOUNT_TOKEN | head -c 20
+
+# Source the token file
+source /etc/profile.d/1password.sh
+
+# Verify 1Password connection
+op vault list
+```
+
+### Cannot Connect to 1Password
+
+**Symptom**: `op` commands fail with connection errors
+
+**Causes & Solutions**:
+
+1. **Invalid token**: Regenerate service account token in 1Password web UI
+2. **Network issue**: Check internet connectivity
+3. **Token expired**: Service account tokens don't expire, but can be revoked
+
+```bash
+# Test 1Password connection
+op vault list
+
+# If it fails, check token
+export OP_SERVICE_ACCOUNT_TOKEN="ops_your_token"
+op vault list
+```
+
+### Secrets Not Found
+
+**Symptom**: `op read` fails with "item not found"
+
+**Solution**:
+```bash
+# List items in Tunnel vault
+op item list --vault Tunnel
+
+# Check item exists with correct name
+op item get tunnel-server --vault Tunnel
+
+# Verify field names
+op item get tunnel-server --vault Tunnel --format json | jq '.fields[].label'
+```
+
+### start.sh Fails Without 1Password
+
+**Symptom**: `./scripts/start.sh` fails when 1Password isn't set up
+
+**Solution**: The script gracefully degrades - it will run without 1Password but warn you:
+```bash
+# Without 1Password, run directly
+python3 main.py
+
+# Or set environment variables manually
+export JWT_SECRET="your-secret"
+python3 main.py
+```
+
+### Service Won't Start After Reboot
+
+**Symptom**: `tunnel-server` service fails after reboot
+
+**Cause**: 1Password token not available to service
+
+**Solution**:
+```bash
+# Check if token file exists
+cat /etc/profile.d/1password.sh
+
+# Ensure it's sourced by the service
+# The OpenRC service should have start_pre() that sources it
 ```
 
 ---

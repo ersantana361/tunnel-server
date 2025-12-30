@@ -64,7 +64,20 @@ pytest
 # Access at http://localhost:8000
 ```
 
-### Production (10 minutes)
+### Production with 1Password (Recommended)
+
+```bash
+# 1. Set up secrets in 1Password
+./scripts/setup-1password.sh
+
+# 2. Create service account at https://my.1password.com
+# 3. Edit scripts/vultr-startup.sh with your token
+# 4. Deploy as Vultr startup script
+
+# Access at https://your-domain.com
+```
+
+### Manual Production
 
 ```bash
 # From your local machine
@@ -74,7 +87,7 @@ export TUNNEL_SERVER_IP=your-server-ip
 # Then SSH and run installer (first time only)
 ssh root@your-server-ip
 cd /opt/tunnel-server
-./scripts/install-alpine.sh  # or scripts/install.sh for Ubuntu/Debian
+./scripts/install.sh
 
 # Access at http://your-server:8000
 ```
@@ -180,6 +193,10 @@ docs/
 | `JWT_SECRET` | Auto-generated | JWT signing key |
 | `DB_PATH` | `./tunnel.db` | Database location |
 | `FRPS_CONFIG` | `/etc/frp/frps.ini` | frp config path |
+| `ADMIN_PASSWORD` | Auto-generated | Admin password (from 1Password) |
+| `ADMIN_TOKEN` | Auto-generated | Admin tunnel token (from 1Password) |
+
+See [Configuration](./configuration/README.md) for 1Password integration details.
 
 ### Common Commands
 

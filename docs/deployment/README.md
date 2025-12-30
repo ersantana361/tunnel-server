@@ -6,6 +6,7 @@ Complete guide for deploying the Tunnel Server to production environments.
 
 - [Deployment Overview](#deployment-overview)
 - [Server Requirements](#server-requirements)
+- [Deployment with 1Password](#deployment-with-1password)
 - [Automated Installation](#automated-installation)
 - [Manual Installation](#manual-installation)
 - [Systemd Services](#systemd-services)
@@ -69,9 +70,9 @@ The Tunnel Server consists of two main components that need to be deployed:
 
 | OS | Init System | Install Script |
 |----|-------------|----------------|
-| Ubuntu 20.04+ | systemd | `scripts/install.sh` |
-| Debian 11+ | systemd | `scripts/install.sh` |
-| Alpine Linux 3.18+ | OpenRC | `scripts/install-alpine.sh` |
+| Alpine Linux 3.18+ | OpenRC | `scripts/install.sh` |
+
+**Note**: The primary deployment target is Alpine Linux with 1Password integration.
 
 ### Required Software
 
@@ -79,7 +80,78 @@ The Tunnel Server consists of two main components that need to be deployed:
 - pip
 - SQLite3
 - wget/curl
-- systemd (Ubuntu/Debian) or OpenRC (Alpine)
+- OpenRC (Alpine)
+- 1Password CLI (`op`)
+
+---
+
+## Deployment with 1Password
+
+The recommended deployment method uses 1Password for secrets management.
+
+### Prerequisites
+
+1. **1Password Account** with service accounts enabled
+2. **Vultr Account** (or other cloud provider)
+
+### Step 1: Set Up Secrets Locally
+
+```bash
+# Install 1Password CLI
+brew install 1password-cli  # macOS
+# Or: https://developer.1password.com/docs/cli/get-started
+
+# Generate secrets and save to 1Password
+./scripts/setup-1password.sh
+```
+
+This creates a `tunnel-server` item in the `Tunnel` vault.
+
+### Step 2: Create Service Account
+
+1. Go to https://my.1password.com → **Developer Tools** → **Service Accounts**
+2. Create a new service account (e.g., "tunnel-server")
+3. Grant **Read & Write** access to the `Tunnel` vault
+4. Copy the service account token (starts with `ops_`)
+
+### Step 3: Configure Vultr Startup Script
+
+Edit `scripts/vultr-startup.sh` and paste your token:
+
+```bash
+OP_SERVICE_ACCOUNT_TOKEN='ops_your_token_here'
+```
+
+### Step 4: Deploy to Vultr
+
+1. Go to Vultr → **Products** → **Startup Scripts**
+2. Create new startup script, paste contents of `vultr-startup.sh`
+3. Deploy new Alpine Linux instance with the startup script selected
+
+### What Gets Installed
+
+The Vultr startup script automatically:
+- Installs 1Password CLI
+- Clones repository from GitHub
+- Installs Python dependencies
+- Configures frp server
+- Sets up Caddy for SSL (if Netlify token provided)
+- Creates OpenRC services
+- Starts all services
+
+### Verifying Deployment
+
+```bash
+ssh root@YOUR_SERVER_IP
+
+# Check services
+rc-service frps status
+rc-service tunnel-server status
+rc-service caddy status
+
+# Check logs
+tail -f /var/log/tunnel-bootstrap.log
+```
 
 ---
 

@@ -5,6 +5,7 @@ Complete guide to configuring the Tunnel Server for development and production e
 ## Table of Contents
 
 - [Environment Variables](#environment-variables)
+- [1Password Integration](#1password-integration)
 - [Application Configuration](#application-configuration)
 - [Database Configuration](#database-configuration)
 - [frp Server Configuration](#frp-server-configuration)
@@ -24,6 +25,9 @@ The application is configured primarily through environment variables, allowing 
 | `JWT_SECRET` | Secret key for JWT token signing | Auto-generated (32 bytes hex) | No |
 | `DB_PATH` | Path to SQLite database file | `./tunnel.db` | No |
 | `FRPS_CONFIG` | Path to frp server config | `/etc/frp/frps.ini` | No |
+| `ADMIN_PASSWORD` | Admin password (from 1Password) | Auto-generated | No |
+| `ADMIN_TOKEN` | Admin tunnel token (from 1Password) | Auto-generated | No |
+| `OP_SERVICE_ACCOUNT_TOKEN` | 1Password service account token | None | For production |
 
 ### Setting Environment Variables
 
@@ -70,6 +74,85 @@ In the systemd service file:
 [Service]
 Environment="JWT_SECRET=your-production-secret"
 Environment="DB_PATH=/var/lib/tunnel-server/tunnel.db"
+```
+
+---
+
+## 1Password Integration
+
+The recommended way to manage secrets is using 1Password CLI (`op`).
+
+### Setup
+
+```bash
+# 1. Install 1Password CLI
+# macOS: brew install 1password-cli
+# Linux: https://developer.1password.com/docs/cli/get-started
+
+# 2. Generate secrets and save to 1Password
+./scripts/setup-1password.sh
+```
+
+This creates a `tunnel-server` item in the `Tunnel` vault with:
+- `jwt-secret` - JWT signing key
+- `admin-password` - Admin dashboard password
+- `admin-token` - Admin tunnel token
+- `frp-token` - frp authentication token
+- `domain` - Server domain
+- `netlify-token` - (optional) For SSL via Caddy
+- `dash-password` - (optional) frp dashboard password
+
+### Using .env.1password
+
+The `.env.1password` file contains `op://` references:
+
+```env
+JWT_SECRET=op://Tunnel/tunnel-server/jwt-secret
+ADMIN_PASSWORD=op://Tunnel/tunnel-server/admin-password
+ADMIN_TOKEN=op://Tunnel/tunnel-server/admin-token
+DB_PATH=/var/lib/tunnel-server/tunnel.db
+```
+
+### Running with 1Password
+
+**Development (interactive):**
+
+```bash
+op run --env-file=.env.1password -- python3 main.py
+```
+
+**Using the wrapper script:**
+
+```bash
+./scripts/start.sh
+```
+
+**Production (service account):**
+
+```bash
+export OP_SERVICE_ACCOUNT_TOKEN="ops_your_token_here"
+op run --env-file=.env.1password -- python3 main.py
+```
+
+### OpenRC Service (Alpine)
+
+The install script creates an OpenRC service that uses 1Password:
+
+```sh
+#!/sbin/openrc-run
+
+name="tunnel-server"
+description="Tunnel Server Admin Dashboard"
+command="/opt/tunnel-server/scripts/start.sh"
+command_background=true
+pidfile="/run/${RC_SVCNAME}.pid"
+
+start_pre() {
+    # Source 1Password token
+    if [ -f /etc/profile.d/1password.sh ]; then
+        . /etc/profile.d/1password.sh
+    fi
+}
 ```
 
 ---

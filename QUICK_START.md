@@ -6,9 +6,37 @@ Get your self-hosted tunnel server running in 10 minutes.
 
 - A server (VPS/cloud instance) with a public IP
 - Domain name (optional, can use IP for testing)
-- SSH access to your server
+- 1Password account (recommended for secrets management)
+
+## Step 0: Set Up 1Password Secrets (Optional, 2 min)
+
+```bash
+# Install 1Password CLI
+brew install 1password-cli  # macOS
+
+# Generate and save secrets to 1Password
+./scripts/setup-1password.sh
+
+# Create a service account at https://my.1password.com
+# → Developer Tools → Service Accounts
+# Grant access to "Tunnel" vault, copy the token
+```
 
 ## Step 1: Deploy Server (3 min)
+
+**Option A: Vultr with 1Password (Recommended)**
+
+```bash
+# Edit scripts/vultr-startup.sh and paste your service account token:
+# OP_SERVICE_ACCOUNT_TOKEN='ops_your_token_here'
+
+# Then in Vultr:
+# 1. Products → Startup Scripts → Add Startup Script
+# 2. Paste contents of vultr-startup.sh
+# 3. Deploy new Alpine Linux instance with the script selected
+```
+
+**Option B: Manual Deployment**
 
 ```bash
 # Set up SSH key for password-free access (one-time)
@@ -21,27 +49,10 @@ export TUNNEL_SERVER_IP=YOUR_SERVER_IP
 # SSH into server and run installer
 ssh root@YOUR_SERVER_IP
 cd /opt/tunnel-server
-
-# Ubuntu/Debian
-chmod +x scripts/install.sh
 sudo ./scripts/install.sh
-
-# Alpine Linux
-chmod +x scripts/install-alpine.sh
-sudo ./scripts/install-alpine.sh
 ```
 
-**Save the admin credentials shown at the end!**
-
-```
-============================================================
-ADMIN CREDENTIALS - SAVE THESE!
-============================================================
-Email: admin@localhost
-Password: abc123xyz789...
-Token: def456uvw012...
-============================================================
-```
+**Credentials are stored in 1Password** (vault: `Tunnel`, item: `tunnel-server`)
 
 ## Step 2: Configure DNS (2 min)
 

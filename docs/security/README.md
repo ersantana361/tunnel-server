@@ -5,6 +5,7 @@ Comprehensive guide to security features, best practices, and hardening for the 
 ## Table of Contents
 
 - [Security Overview](#security-overview)
+- [Secrets Management with 1Password](#secrets-management-with-1password)
 - [Authentication](#authentication)
 - [Authorization](#authorization)
 - [Password Security](#password-security)
@@ -47,6 +48,55 @@ The Tunnel Server implements multiple layers of security:
 │                                                              │
 └─────────────────────────────────────────────────────────────┘
 ```
+
+---
+
+## Secrets Management with 1Password
+
+The recommended approach for managing secrets is using 1Password CLI.
+
+### Why 1Password?
+
+| Feature | Auto-Generated | 1Password |
+|---------|---------------|-----------|
+| Credential storage | Printed to console (lost if missed) | Securely stored in vault |
+| Secret rotation | Manual regeneration | Easy rotation via CLI |
+| Access control | Whoever sees console | Role-based vault access |
+| Audit trail | None | Full access logs |
+| Multi-environment | Copy/paste | Service accounts per env |
+
+### How It Works
+
+```
+┌─────────────────┐     ┌──────────────────┐     ┌─────────────────┐
+│  setup-1password │────▶│   1Password      │────▶│   start.sh      │
+│  (generates)     │     │   Vault          │     │   (injects)     │
+└─────────────────┘     └──────────────────┘     └─────────────────┘
+                               │
+                               ▼
+                        ┌──────────────────┐
+                        │  op://Tunnel/    │
+                        │  tunnel-server/  │
+                        │  • jwt-secret    │
+                        │  • admin-password│
+                        │  • admin-token   │
+                        │  • frp-token     │
+                        └──────────────────┘
+```
+
+### Security Benefits
+
+1. **No secrets in code or environment files** - Only `op://` references in `.env.1password`
+2. **Secrets never touch disk** - `op run` injects directly into process environment
+3. **Service accounts** - Production servers use tokens with limited vault access
+4. **Automatic secret rotation** - Update in 1Password, restart service
+
+### Service Account Security
+
+- Create dedicated service accounts per environment
+- Grant minimum required vault access (read-only for most)
+- Service account tokens are single-use credentials
+- Tokens can be revoked instantly if compromised
 
 ---
 

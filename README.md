@@ -68,9 +68,25 @@ pytest
 
 - Opens at http://localhost:8000
 - Creates `./tunnel.db` in current directory
-- Admin credentials printed to console on first run
+- Admin credentials from 1Password (recommended) or auto-generated on first run
 
 ### Production Deployment
+
+**Option 1: Vultr with 1Password (Recommended)**
+
+```bash
+# 1. Set up 1Password secrets locally
+./scripts/setup-1password.sh
+
+# 2. Create a 1Password service account and copy the token
+
+# 3. Edit scripts/vultr-startup.sh and paste your token:
+#    OP_SERVICE_ACCOUNT_TOKEN='ops_your_token_here'
+
+# 4. Add as Vultr startup script and deploy Alpine VM
+```
+
+**Option 2: Manual Deployment**
 
 ```bash
 # Set up SSH key (one-time)
@@ -84,14 +100,11 @@ export TUNNEL_SERVER_IP=your-server-ip
 ssh root@your-server-ip
 cd /opt/tunnel-server
 
-# Ubuntu/Debian
+# Alpine Linux (with 1Password)
 sudo ./scripts/install.sh
-
-# Alpine Linux
-sudo ./scripts/install-alpine.sh
 ```
 
-**Save the admin credentials shown!**
+**Credentials are stored in 1Password** (vault: `Tunnel`, item: `tunnel-server`)
 
 ## Connecting Tunnels
 
@@ -194,8 +207,11 @@ tunnel-server/
 ├── tests/                    # Test suite
 ├── scripts/
 │   ├── deploy.sh             # Deploy via SCP
-│   ├── install.sh            # Ubuntu/Debian installer
-│   └── install-alpine.sh     # Alpine installer
+│   ├── install.sh            # Alpine installer with 1Password
+│   ├── start.sh              # Start with 1Password secrets
+│   ├── setup-1password.sh    # Generate & save secrets to 1Password
+│   └── vultr-startup.sh      # Vultr cloud-init script
+├── .env.1password            # 1Password secret references template
 └── docs/                     # Documentation
 ```
 
@@ -207,6 +223,23 @@ tunnel-server/
 | `DB_PATH` | SQLite database path | `./tunnel.db` |
 | `FRPS_CONFIG` | frp server config path | `/etc/frp/frps.ini` |
 | `SERVER_DOMAIN` | Domain for public URLs | Read from frps.ini |
+| `ADMIN_PASSWORD` | Admin password (from 1Password) | Auto-generated |
+| `ADMIN_TOKEN` | Admin tunnel token (from 1Password) | Auto-generated |
+
+### 1Password Integration
+
+Secrets can be managed via 1Password CLI:
+
+```bash
+# Set up secrets in 1Password (one-time)
+./scripts/setup-1password.sh
+
+# Run with 1Password secret injection
+op run --env-file=.env.1password -- python3 main.py
+
+# Or use the wrapper script
+./scripts/start.sh
+```
 
 ## Troubleshooting
 
