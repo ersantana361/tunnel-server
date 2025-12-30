@@ -296,8 +296,9 @@ if [ -n "$NETLIFY_TOKEN" ]; then
     export HOME=/root
     export GOPATH=/root/go
     export GOCACHE=/root/.cache/go-build
+    export TMPDIR=/root/tmp
     export PATH=$PATH:$GOPATH/bin
-    mkdir -p "$GOCACHE"
+    mkdir -p "$GOCACHE" "$TMPDIR"
 
     go install github.com/caddyserver/xcaddy/cmd/xcaddy@latest
     $GOPATH/bin/xcaddy build --with github.com/caddy-dns/netlify --output /usr/local/bin/caddy
