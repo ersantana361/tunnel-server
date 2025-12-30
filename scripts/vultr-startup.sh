@@ -292,8 +292,13 @@ if [ -n "$NETLIFY_TOKEN" ]; then
 
     apk add --no-cache go
 
+    # Set Go environment (required for startup script context)
+    export HOME=/root
     export GOPATH=/root/go
+    export GOCACHE=/root/.cache/go-build
     export PATH=$PATH:$GOPATH/bin
+    mkdir -p "$GOCACHE"
+
     go install github.com/caddyserver/xcaddy/cmd/xcaddy@latest
     $GOPATH/bin/xcaddy build --with github.com/caddy-dns/netlify --output /usr/local/bin/caddy
     chmod +x /usr/local/bin/caddy
