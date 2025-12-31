@@ -84,6 +84,53 @@ def init_db():
         )
     """)
 
+    # Tunnel metrics (aggregate stats from frps API)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS tunnel_metrics (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            tunnel_id INTEGER NOT NULL,
+            tunnel_name TEXT NOT NULL,
+            traffic_in INTEGER DEFAULT 0,
+            traffic_out INTEGER DEFAULT 0,
+            current_connections INTEGER DEFAULT 0,
+            status TEXT DEFAULT 'offline',
+            collected_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (tunnel_id) REFERENCES tunnels(id)
+        )
+    """)
+
+    # Request metrics (per-request data from client reports)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS request_metrics (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            tunnel_id INTEGER NOT NULL,
+            tunnel_name TEXT NOT NULL,
+            request_path TEXT,
+            request_method TEXT,
+            status_code INTEGER,
+            response_time_ms INTEGER,
+            bytes_sent INTEGER DEFAULT 0,
+            bytes_received INTEGER DEFAULT 0,
+            client_ip TEXT,
+            timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (tunnel_id) REFERENCES tunnels(id)
+        )
+    """)
+
+    # Indexes for efficient querying
+    cursor.execute("""
+        CREATE INDEX IF NOT EXISTS idx_tunnel_metrics_tunnel
+        ON tunnel_metrics(tunnel_id, collected_at)
+    """)
+    cursor.execute("""
+        CREATE INDEX IF NOT EXISTS idx_request_metrics_tunnel
+        ON request_metrics(tunnel_id, timestamp)
+    """)
+    cursor.execute("""
+        CREATE INDEX IF NOT EXISTS idx_request_metrics_slow
+        ON request_metrics(response_time_ms DESC)
+    """)
+
     # Create default admin if not exists
     cursor.execute("SELECT COUNT(*) FROM users WHERE is_admin = 1")
     if cursor.fetchone()[0] == 0:

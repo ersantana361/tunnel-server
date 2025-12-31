@@ -24,3 +24,9 @@ ADMIN_TOKEN = os.getenv("ADMIN_TOKEN")
 NETLIFY_API_TOKEN = os.getenv("NETLIFY_API_TOKEN")
 NETLIFY_DNS_ZONE_ID = os.getenv("NETLIFY_DNS_ZONE_ID")  # Zone ID for ersantana.com
 TUNNEL_DOMAIN = os.getenv("TUNNEL_DOMAIN", "tunnel.ersantana.com")
+
+# frps Dashboard Configuration (for metrics collection)
+FRPS_DASHBOARD_HOST = os.getenv("FRPS_DASHBOARD_HOST", "localhost")
+FRPS_DASHBOARD_PORT = int(os.getenv("FRPS_DASHBOARD_PORT", "7500"))
+FRPS_DASHBOARD_USER = os.getenv("FRPS_DASHBOARD_USER", "admin")
+FRPS_DASHBOARD_PASS = os.getenv("FRPS_DASHBOARD_PASS", "")

@@ -46,3 +46,19 @@ class TunnelUpdate(BaseModel):
     local_host: Optional[str] = None
     subdomain: Optional[str] = None
     remote_port: Optional[int] = None
+
+
+class RequestMetric(BaseModel):
+    tunnel_name: str
+    request_path: str = ""
+    request_method: str = ""
+    status_code: Optional[int] = None
+    response_time_ms: Optional[int] = None
+    bytes_sent: int = 0
+    bytes_received: int = 0
+    client_ip: Optional[str] = None
+    timestamp: Optional[str] = None
+
+
+class MetricsBatch(BaseModel):
+    metrics: list[RequestMetric]

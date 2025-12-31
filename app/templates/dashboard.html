@@ -376,6 +376,7 @@
                 <button class="tab active" onclick="switchTab('overview')">Overview</button>
                 <button class="tab" onclick="switchTab('users')">Users</button>
                 <button class="tab" onclick="switchTab('tunnels')">Tunnels</button>
+                <button class="tab" onclick="switchTab('metrics')">Metrics</button>
                 <button class="tab" onclick="switchTab('activity')">Activity</button>
             </div>
 
@@ -479,6 +480,82 @@
                         </thead>
                         <tbody id="activityList"></tbody>
                     </table>
+                </div>
+            </div>
+
+            <!-- Metrics Tab -->
+            <div id="metricsTab" class="tab-content">
+                <!-- Metrics Overview -->
+                <div class="stats-grid">
+                    <div class="stat-card">
+                        <h3>Requests (24h)</h3>
+                        <div class="stat-value" id="metricRequests24h">0</div>
+                    </div>
+                    <div class="stat-card">
+                        <h3>Avg Response Time</h3>
+                        <div class="stat-value" id="metricAvgResponse">0<span style="font-size: 16px">ms</span></div>
+                    </div>
+                    <div class="stat-card">
+                        <h3>Slow Requests (24h)</h3>
+                        <div class="stat-value" id="metricSlowRequests">0</div>
+                    </div>
+                    <div class="stat-card">
+                        <h3>frps Status</h3>
+                        <div class="stat-value" id="metricFrpsStatus">-</div>
+                    </div>
+                </div>
+
+                <!-- Tunnel Metrics -->
+                <div class="section">
+                    <div class="section-header">
+                        <h2>Tunnel Metrics</h2>
+                        <select id="metricsFilterTunnel" onchange="loadRequestMetrics()" style="width: auto; min-width: 200px;">
+                            <option value="">All Tunnels</option>
+                        </select>
+                    </div>
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Tunnel</th>
+                                <th>Type</th>
+                                <th>Status</th>
+                                <th>Connections</th>
+                                <th>Traffic In</th>
+                                <th>Traffic Out</th>
+                                <th>Last Updated</th>
+                            </tr>
+                        </thead>
+                        <tbody id="tunnelMetricsList"></tbody>
+                    </table>
+                </div>
+
+                <!-- Request Metrics -->
+                <div class="section">
+                    <div class="section-header">
+                        <h2>Request Metrics</h2>
+                        <div style="display: flex; gap: 10px; align-items: center;">
+                            <label style="margin: 0; font-size: 13px;">Min Response Time:</label>
+                            <input type="number" id="metricsMinResponse" placeholder="1000" style="width: 100px;" onchange="loadRequestMetrics()">
+                            <span style="font-size: 13px; color: #94a3b8;">ms</span>
+                        </div>
+                    </div>
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Time</th>
+                                <th>Tunnel</th>
+                                <th>Method</th>
+                                <th>Path</th>
+                                <th>Status</th>
+                                <th>Response Time</th>
+                                <th>Size</th>
+                            </tr>
+                        </thead>
+                        <tbody id="requestMetricsList"></tbody>
+                    </table>
+                    <div id="noRequestMetrics" style="padding: 20px; text-align: center; color: #94a3b8; display: none;">
+                        No request metrics yet. Request metrics are reported by the tunnel client.
+                    </div>
                 </div>
             </div>
         </div>
@@ -708,6 +785,7 @@
             if (tab === 'overview') loadStats();
             if (tab === 'users') loadUsers();
             if (tab === 'tunnels') loadTunnels();
+            if (tab === 'metrics') loadMetrics();
             if (tab === 'activity') loadActivity();
         }
 
@@ -807,10 +885,143 @@
             return date.toLocaleString();
         }
 
+        function formatBytes(bytes) {
+            if (!bytes || bytes === 0) return '0 B';
+            const k = 1024;
+            const sizes = ['B', 'KB', 'MB', 'GB'];
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+            return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+        }
+
+        function formatResponseTime(ms) {
+            if (!ms) return '-';
+            if (ms >= 1000) {
+                return `<span style="color: #ef4444">${ms}ms</span>`;
+            } else if (ms >= 500) {
+                return `<span style="color: #f59e0b">${ms}ms</span>`;
+            }
+            return `${ms}ms`;
+        }
+
+        function getStatusBadge(status) {
+            if (status === 'online') {
+                return '<span class="badge badge-success">Online</span>';
+            } else if (status === 'offline') {
+                return '<span class="badge badge-danger">Offline</span>';
+            }
+            return '<span class="badge badge-warning">Unknown</span>';
+        }
+
+        async function loadMetrics() {
+            loadMetricsOverview();
+            loadTunnelMetrics();
+            loadRequestMetrics();
+        }
+
+        async function loadMetricsOverview() {
+            const res = await apiCall('/api/metrics/overview');
+            if (res.ok) {
+                const data = await res.json();
+                document.getElementById('metricRequests24h').textContent = data.requests_24h || 0;
+                document.getElementById('metricAvgResponse').innerHTML =
+                    (data.avg_response_time_ms || 0) + '<span style="font-size: 16px">ms</span>';
+                document.getElementById('metricSlowRequests').textContent = data.slow_requests_24h || 0;
+                document.getElementById('metricFrpsStatus').innerHTML =
+                    data.frps_available
+                        ? '<span style="color: #22c55e">Connected</span>'
+                        : '<span style="color: #ef4444">Unavailable</span>';
+            }
+        }
+
+        async function loadTunnelMetrics() {
+            const res = await apiCall('/api/metrics/tunnels');
+            if (res.ok) {
+                const data = await res.json();
+                const tunnels = data.tunnels || [];
+
+                // Update tunnel filter dropdown
+                const select = document.getElementById('metricsFilterTunnel');
+                const currentValue = select.value;
+                select.innerHTML = '<option value="">All Tunnels</option>' +
+                    tunnels.map(t => `<option value="${t.tunnel_id}">${t.tunnel_name}</option>`).join('');
+                select.value = currentValue;
+
+                // Update tunnel metrics table
+                const tbody = document.getElementById('tunnelMetricsList');
+                if (tunnels.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="7" style="text-align: center; color: #94a3b8;">No tunnel metrics available</td></tr>';
+                    return;
+                }
+
+                tbody.innerHTML = tunnels.map(t => `
+                    <tr>
+                        <td>${t.tunnel_name}</td>
+                        <td>${(t.tunnel_type || '').toUpperCase()}</td>
+                        <td>${getStatusBadge(t.status)}</td>
+                        <td>${t.current_connections || 0}</td>
+                        <td>${formatBytes(t.traffic_in)}</td>
+                        <td>${formatBytes(t.traffic_out)}</td>
+                        <td>${t.last_collected ? formatDate(t.last_collected) : '-'}</td>
+                    </tr>
+                `).join('');
+            }
+        }
+
+        async function loadRequestMetrics() {
+            const tunnelId = document.getElementById('metricsFilterTunnel').value;
+            const minResponse = document.getElementById('metricsMinResponse').value;
+
+            let url = '/api/metrics/requests?limit=100';
+            if (tunnelId) url += `&tunnel_id=${tunnelId}`;
+            if (minResponse) url += `&min_response_time=${minResponse}`;
+
+            const res = await apiCall(url);
+            if (res.ok) {
+                const data = await res.json();
+                const requests = data.requests || [];
+
+                const tbody = document.getElementById('requestMetricsList');
+                const noDataDiv = document.getElementById('noRequestMetrics');
+
+                if (requests.length === 0) {
+                    tbody.innerHTML = '';
+                    noDataDiv.style.display = 'block';
+                    return;
+                }
+
+                noDataDiv.style.display = 'none';
+                tbody.innerHTML = requests.map(r => `
+                    <tr>
+                        <td>${formatDate(r.timestamp)}</td>
+                        <td>${r.tunnel_name}</td>
+                        <td><span class="badge" style="background: #3b82f622; color: #3b82f6">${r.request_method || '-'}</span></td>
+                        <td style="max-width: 300px; overflow: hidden; text-overflow: ellipsis;">${r.request_path || '-'}</td>
+                        <td>${r.status_code ? getHttpStatusBadge(r.status_code) : '-'}</td>
+                        <td>${formatResponseTime(r.response_time_ms)}</td>
+                        <td>${formatBytes(r.bytes_received)}</td>
+                    </tr>
+                `).join('');
+            }
+        }
+
+        function getHttpStatusBadge(code) {
+            if (code >= 200 && code < 300) {
+                return `<span class="badge badge-success">${code}</span>`;
+            } else if (code >= 400 && code < 500) {
+                return `<span class="badge badge-warning">${code}</span>`;
+            } else if (code >= 500) {
+                return `<span class="badge badge-danger">${code}</span>`;
+            }
+            return `<span class="badge">${code}</span>`;
+        }
+
         // Auto-refresh stats
         setInterval(() => {
             if (document.getElementById('overviewTab').classList.contains('active')) {
                 loadStats();
+            }
+            if (document.getElementById('metricsTab').classList.contains('active')) {
+                loadMetrics();
             }
         }, 10000);
     </script>

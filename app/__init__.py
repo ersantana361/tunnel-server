@@ -3,6 +3,8 @@ Tunnel Server - Admin Dashboard & User Management
 FastAPI application factory
 """
 import os
+import asyncio
+import logging
 from fastapi import FastAPI
 from fastapi.responses import HTMLResponse
 from contextlib import asynccontextmanager
@@ -10,6 +12,9 @@ from contextlib import asynccontextmanager
 from .database import init_db
 from .routes import auth, users, tunnels, stats
 from .services.dns import setup_tunnel_dns
+from .services.metrics import collect_tunnel_metrics, cleanup_old_metrics
+
+logger = logging.getLogger(__name__)
 
 
 def get_dashboard_html() -> str:
@@ -19,12 +24,49 @@ def get_dashboard_html() -> str:
         return f.read()
 
 
+async def collect_metrics_periodically():
+    """Background task to collect frps metrics every 60 seconds"""
+    while True:
+        try:
+            collect_tunnel_metrics()
+        except Exception as e:
+            logger.error(f"Metrics collection failed: {e}")
+        await asyncio.sleep(60)
+
+
+async def cleanup_metrics_periodically():
+    """Background task to clean up old metrics daily"""
+    while True:
+        await asyncio.sleep(86400)  # 24 hours
+        try:
+            cleanup_old_metrics(days=7)
+        except Exception as e:
+            logger.error(f"Metrics cleanup failed: {e}")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Application lifespan - initialize database and DNS on startup"""
+    """Application lifespan - initialize database, DNS, and background tasks"""
     init_db()
     setup_tunnel_dns()
+
+    # Start background tasks
+    collect_task = asyncio.create_task(collect_metrics_periodically())
+    cleanup_task = asyncio.create_task(cleanup_metrics_periodically())
+
     yield
+
+    # Cancel background tasks on shutdown
+    collect_task.cancel()
+    cleanup_task.cancel()
+    try:
+        await collect_task
+    except asyncio.CancelledError:
+        pass
+    try:
+        await cleanup_task
+    except asyncio.CancelledError:
+        pass
 
 
 def create_app() -> FastAPI:
