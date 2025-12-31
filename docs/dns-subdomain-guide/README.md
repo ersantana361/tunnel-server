@@ -77,13 +77,11 @@ curl -H "Authorization: Bearer YOUR_TOKEN" \
 ### Step 3: Configure Environment
 
 Add to 1Password (`Tunnel/tunnel-server`):
-- `netlify-api-token` - Your Netlify API token
-- `netlify-dns-zone-id` - The zone ID from step 2
+- `netlify-token` - Your Netlify API token
 
-Or set environment variables:
+The zone ID is auto-detected from the domain. Or set environment variables:
 ```bash
 export NETLIFY_API_TOKEN="your_token"
-export NETLIFY_DNS_ZONE_ID="your_zone_id"
 export TUNNEL_DOMAIN="tunnel.ersantana.com"
 ```
 

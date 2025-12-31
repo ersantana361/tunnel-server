@@ -107,9 +107,8 @@ This creates a `tunnel-server` item in the `Tunnel` vault with:
 - `admin-token` - Admin tunnel token
 - `frp-token` - frp authentication token
 - `domain` - Server domain
-- `netlify-token` - (optional) For SSL via Caddy
 - `dash-password` - (optional) frp dashboard password
-- `netlify-api-token` - (optional) For automatic DNS record creation (zone ID is auto-detected)
+- `netlify-token` - (optional) For automatic DNS record creation (zone ID is auto-detected)
 
 ### Using .env.1password
 
@@ -123,7 +122,7 @@ DB_PATH=/var/lib/tunnel-server/tunnel.db
 
 # Netlify DNS (for automatic DNS record creation on startup)
 # Only the API token is required - zone ID is auto-detected from the domain
-NETLIFY_API_TOKEN=op://Tunnel/tunnel-server/netlify-api-token
+NETLIFY_API_TOKEN=op://Tunnel/tunnel-server/netlify-token
 TUNNEL_DOMAIN=tunnel.ersantana.com
 ```
 
@@ -568,7 +567,7 @@ If records already exist with the correct IP, no changes are made.
 Only the API token and domain are required - the zone ID is auto-detected:
 
 ```env
-NETLIFY_API_TOKEN=op://Tunnel/tunnel-server/netlify-api-token
+NETLIFY_API_TOKEN=op://Tunnel/tunnel-server/netlify-token
 TUNNEL_DOMAIN=tunnel.ersantana.com
 ```
 

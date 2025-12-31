@@ -132,7 +132,7 @@ Environment variables:
 Secrets are managed via 1Password CLI using the `op://` URI scheme:
 - Vault: `Tunnel`
 - Item: `tunnel-server`
-- Fields: `jwt-secret`, `admin-password`, `admin-token`, `frp-token`, `domain`, `netlify-api-token`, `netlify-dns-zone-id`
+- Fields: `jwt-secret`, `admin-password`, `admin-token`, `frp-token`, `domain`, `netlify-token`
 
 Key files:
 - `.env.1password` - Template with `op://` secret references

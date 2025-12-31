@@ -72,13 +72,6 @@ DASH_PASSWORD=$(openssl rand -hex 16)
 echo ""
 read -p "Enter domain (e.g., tunnel.example.com) [leave empty to use IP]: " DOMAIN
 read -p "Enter Netlify API token [leave empty to skip]: " NETLIFY_TOKEN
-if [ -n "$NETLIFY_TOKEN" ]; then
-    echo ""
-    echo "To get your DNS Zone ID, run:"
-    echo "  curl -H 'Authorization: Bearer YOUR_TOKEN' https://api.netlify.com/api/v1/dns_zones | jq '.[] | {name, id}'"
-    echo ""
-    read -p "Enter Netlify DNS Zone ID for automatic DNS [leave empty to skip]: " NETLIFY_DNS_ZONE_ID
-fi
 read -p "Enter ACME email for SSL certs [admin@localhost]: " ACME_EMAIL
 ACME_EMAIL="${ACME_EMAIL:-admin@localhost}"
 
@@ -111,8 +104,7 @@ TEMPLATE=$(cat <<EOF
     {"id": "frp-token", "type": "CONCEALED", "label": "frp-token", "value": "$FRP_TOKEN"},
     {"id": "dash-password", "type": "CONCEALED", "label": "dash-password", "value": "$DASH_PASSWORD"},
     {"id": "domain", "type": "STRING", "label": "domain", "value": "$DOMAIN"},
-    {"id": "netlify-api-token", "type": "CONCEALED", "label": "netlify-api-token", "value": "$NETLIFY_TOKEN"},
-    {"id": "netlify-dns-zone-id", "type": "STRING", "label": "netlify-dns-zone-id", "value": "$NETLIFY_DNS_ZONE_ID"},
+    {"id": "netlify-token", "type": "CONCEALED", "label": "netlify-token", "value": "$NETLIFY_TOKEN"},
     {"id": "acme-email", "type": "STRING", "label": "acme-email", "value": "$ACME_EMAIL"}
   ]
 }
@@ -139,10 +131,7 @@ if [ -n "$DOMAIN" ]; then
 echo "  domain:             $DOMAIN"
 fi
 if [ -n "$NETLIFY_TOKEN" ]; then
-echo "  netlify-api-token:  ****${NETLIFY_TOKEN: -8}"
-fi
-if [ -n "$NETLIFY_DNS_ZONE_ID" ]; then
-echo "  netlify-dns-zone-id: $NETLIFY_DNS_ZONE_ID"
+echo "  netlify-token:      ****${NETLIFY_TOKEN: -8}"
 fi
 echo "  acme-email:         $ACME_EMAIL"
 echo ""

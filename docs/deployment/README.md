@@ -510,17 +510,10 @@ tunnel.ersantana.com     → SERVER_IP
 *.tunnel.ersantana.com   → SERVER_IP (wildcard)
 ```
 
-To enable, add these to 1Password (`Tunnel/tunnel-server`):
-- `netlify-api-token` - Your Netlify personal access token
-- `netlify-dns-zone-id` - Your DNS zone ID
+To enable, add to 1Password (`Tunnel/tunnel-server`):
+- `netlify-token` - Your Netlify personal access token
 
-Get your zone ID:
-```bash
-curl -H "Authorization: Bearer YOUR_TOKEN" \
-  https://api.netlify.com/api/v1/dns_zones | jq '.[] | {name, id}'
-```
-
-The server automatically detects its public IP and creates/updates records on each startup.
+The zone ID is auto-detected from `TUNNEL_DOMAIN`. The server automatically detects its public IP and creates/updates records on each startup.
 
 ### Manual A Records
 
