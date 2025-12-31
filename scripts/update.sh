@@ -43,13 +43,13 @@ pip install -q -r requirements.txt
 
 # Restart the service
 echo ""
-echo "Restarting tunnel-admin service..."
-rc-service tunnel-admin restart
+echo "Restarting tunnel-server service..."
+rc-service tunnel-server restart
 
 # Show status
 echo ""
 echo "=== Update Complete ==="
-rc-service tunnel-admin status
+rc-service tunnel-server status
 
 echo ""
-echo "Logs: tail -f /var/log/tunnel-admin.log"
+echo "Logs: tail -f /var/log/tunnel-server.log"

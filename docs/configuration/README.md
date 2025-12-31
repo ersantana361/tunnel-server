@@ -32,6 +32,10 @@ The application is configured primarily through environment variables, allowing 
 | `NETLIFY_API_TOKEN` | Netlify API token for automatic DNS | None | For auto DNS |
 | `NETLIFY_DNS_ZONE_ID` | Netlify DNS zone ID | None | For auto DNS |
 | `TUNNEL_DOMAIN` | Domain for tunnel DNS records | `tunnel.ersantana.com` | No |
+| `FRPS_DASHBOARD_HOST` | frps dashboard hostname | `localhost` | No |
+| `FRPS_DASHBOARD_PORT` | frps dashboard port | `7500` | No |
+| `FRPS_DASHBOARD_USER` | frps dashboard username | `admin` | No |
+| `FRPS_DASHBOARD_PASS` | frps dashboard password | Empty | For metrics |
 
 ### Setting Environment Variables
 
@@ -349,6 +353,33 @@ For TCP tunnels, you can restrict available ports:
 bind_port = 7000
 allow_ports = 5000-6000,8080,9000-9100
 ```
+
+### frps Dashboard (for Metrics)
+
+The tunnel server can collect aggregate metrics from the frps dashboard API. Configure the frps web dashboard:
+
+```toml
+# /etc/frp/frps.toml
+[webServer]
+addr = "0.0.0.0"
+port = 7500
+user = "admin"
+password = "your-dashboard-password"
+```
+
+Then configure the tunnel server to connect:
+
+```bash
+export FRPS_DASHBOARD_HOST=localhost
+export FRPS_DASHBOARD_PORT=7500
+export FRPS_DASHBOARD_USER=admin
+export FRPS_DASHBOARD_PASS=your-dashboard-password
+```
+
+The server will poll the frps dashboard every 60 seconds to collect:
+- Traffic statistics per tunnel
+- Connection counts
+- Online/offline status
 
 ---
 

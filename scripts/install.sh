@@ -73,6 +73,9 @@ pidfile="/run/${RC_SVCNAME}.pid"
 output_log="/var/log/tunnel-server.log"
 error_log="/var/log/tunnel-server.log"
 
+# Retry stopping: SIGTERM, wait 5s, SIGTERM, wait 5s, SIGKILL
+retry="TERM/5/TERM/5/KILL/5"
+
 depend() {
     need net
     after firewall
@@ -91,6 +94,19 @@ start_pre() {
         eerror "  export OP_SERVICE_ACCOUNT_TOKEN=\"ops_...\""
         return 1
     fi
+}
+
+stop() {
+    ebegin "Stopping ${name}"
+    # Kill the main process from pidfile
+    if [ -f "$pidfile" ]; then
+        start-stop-daemon --stop --pidfile "$pidfile" --retry "$retry"
+    fi
+    # Also kill any remaining Python processes for this app
+    pkill -f "python.*main.py.*tunnel-server" 2>/dev/null || true
+    pkill -f "/opt/tunnel-server/venv/bin/python" 2>/dev/null || true
+    rm -f "$pidfile"
+    eend 0
 }
 EOF
 

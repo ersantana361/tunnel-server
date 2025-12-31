@@ -12,6 +12,7 @@ Complete documentation for all API endpoints provided by the Tunnel Server admin
   - [Tunnels](#tunnel-endpoints)
   - [Statistics](#statistics-endpoints)
   - [Activity](#activity-endpoints)
+  - [Metrics](#metrics-endpoints)
 - [Error Handling](#error-handling)
 - [Rate Limiting](#rate-limiting)
 
@@ -531,6 +532,226 @@ curl http://localhost:8000/api/activity \
 curl "http://localhost:8000/api/activity?limit=100" \
   -H "Authorization: Bearer <token>"
 ```
+
+---
+
+### Metrics Endpoints
+
+#### GET /api/metrics
+
+Query stored request metrics with filtering and pagination.
+
+**Headers:**
+```
+Authorization: Bearer <jwt_token>
+```
+
+**Query Parameters:**
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| tunnel_name | string | - | Filter by tunnel name |
+| min_response_time | int | - | Only requests slower than N ms |
+| max_response_time | int | - | Only requests faster than N ms |
+| status_code | int | - | Filter by HTTP status code |
+| method | string | - | Filter by HTTP method (GET, POST, etc.) |
+| limit | int | 100 | Max results (1-1000) |
+| offset | int | 0 | Pagination offset |
+
+**Response (200 OK):**
+```json
+{
+  "metrics": [
+    {
+      "id": 1234,
+      "tunnel_id": 1,
+      "tunnel_name": "myapp",
+      "request_path": "/api/users",
+      "request_method": "GET",
+      "status_code": 200,
+      "response_time_ms": 145,
+      "bytes_sent": 256,
+      "bytes_received": 1024,
+      "client_ip": "192.168.1.100",
+      "timestamp": "2025-12-30T23:45:00"
+    }
+  ],
+  "total": 1500,
+  "limit": 100,
+  "offset": 0
+}
+```
+
+**Example:**
+```bash
+# Get slow requests for a specific tunnel
+curl "http://localhost:8000/api/metrics?tunnel_name=myapp&min_response_time=500&limit=50" \
+  -H "Authorization: Bearer <token>"
+```
+
+---
+
+#### GET /api/metrics/summary
+
+Get aggregated statistics for a time period with percentiles.
+
+**Headers:**
+```
+Authorization: Bearer <jwt_token>
+```
+
+**Query Parameters:**
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| tunnel_name | string | - | Filter by tunnel (all if omitted) |
+| period | string | 1h | Time window: `1h`, `24h`, `7d` |
+
+**Response (200 OK):**
+```json
+{
+  "tunnel_name": "myapp",
+  "period": "24h",
+  "total_requests": 5000,
+  "avg_response_time_ms": 145.5,
+  "p50_response_time_ms": 120,
+  "p95_response_time_ms": 450,
+  "p99_response_time_ms": 890,
+  "min_response_time_ms": 12,
+  "max_response_time_ms": 2500,
+  "total_bytes_in": 5120000,
+  "total_bytes_out": 20480000,
+  "status_codes": {
+    "2xx": 4800,
+    "3xx": 50,
+    "4xx": 100,
+    "5xx": 50
+  },
+  "requests_per_minute": 3.47,
+  "error_rate": 0.03
+}
+```
+
+**Example:**
+```bash
+curl "http://localhost:8000/api/metrics/summary?tunnel_name=myapp&period=24h" \
+  -H "Authorization: Bearer <token>"
+```
+
+---
+
+#### GET /api/metrics/tunnels
+
+List all tunnels with their 1-hour request metrics summary.
+
+**Headers:**
+```
+Authorization: Bearer <jwt_token>
+```
+
+**Response (200 OK):**
+```json
+{
+  "tunnels": [
+    {
+      "tunnel_name": "myapp",
+      "total_requests_1h": 500,
+      "avg_response_time_1h": 145,
+      "p95_response_time_1h": 450,
+      "total_bytes_in_1h": 512000,
+      "total_bytes_out_1h": 2048000,
+      "error_rate_1h": 0.02,
+      "last_request": "2025-12-30T23:45:00",
+      "status": "active"
+    }
+  ]
+}
+```
+
+**Status Values:**
+
+| Status | Description |
+|--------|-------------|
+| active | Request in last 5 minutes |
+| idle | No recent requests |
+| unknown | No request data |
+
+**Example:**
+```bash
+curl http://localhost:8000/api/metrics/tunnels \
+  -H "Authorization: Bearer <token>"
+```
+
+---
+
+#### GET /api/metrics/overview
+
+Get high-level metrics overview from frps and database.
+
+**Headers:**
+```
+Authorization: Bearer <admin_jwt_token>
+```
+
+**Response (200 OK):**
+```json
+{
+  "frps_available": true,
+  "frps_info": {
+    "version": "0.52.3",
+    "totalTrafficIn": 1234567890,
+    "totalTrafficOut": 9876543210,
+    "curConns": 5,
+    "clientCounts": 3
+  },
+  "requests_24h": 5000,
+  "avg_response_time_ms": 145.5,
+  "slow_requests_24h": 25
+}
+```
+
+---
+
+#### POST /api/metrics/report
+
+Receive metrics batch from tunnel client. Used by the metrics proxy to report request timing data.
+
+**Headers:**
+```
+Authorization: Bearer <jwt_token>
+Content-Type: application/json
+```
+
+**Request:**
+```json
+{
+  "metrics": [
+    {
+      "tunnel_name": "myapp",
+      "request_path": "/api/users",
+      "request_method": "GET",
+      "status_code": 200,
+      "response_time_ms": 145,
+      "bytes_sent": 256,
+      "bytes_received": 1024,
+      "client_ip": "192.168.1.100",
+      "timestamp": "2025-12-30T23:45:00.000Z"
+    }
+  ]
+}
+```
+
+**Response (200 OK):**
+```json
+{
+  "stored": 1
+}
+```
+
+**Notes:**
+- Clients authenticate with their user JWT token
+- Metrics are validated against user's tunnels
+- Unknown tunnel names are rejected
 
 ---
 

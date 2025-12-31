@@ -58,36 +58,41 @@ sqlite3 /var/lib/tunnel-server/tunnel.db
 ### Entity Relationship Diagram
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                                                                  │
-│  ┌──────────────┐          ┌───────────────┐                   │
-│  │    users     │          │    tunnels    │                   │
-│  ├──────────────┤          ├───────────────┤                   │
-│  │ id (PK)      │◄────────┤│ user_id (FK)  │                   │
-│  │ email        │     1:N  │ id (PK)       │                   │
-│  │ password_hash│          │ name          │                   │
-│  │ token        │          │ type          │                   │
-│  │ is_admin     │          │ subdomain     │                   │
-│  │ is_active    │          │ remote_port   │                   │
-│  │ max_tunnels  │          │ is_active     │                   │
-│  │ created_at   │          │ created_at    │                   │
-│  │ last_login   │          │ last_connected│                   │
-│  └──────┬───────┘          └───────────────┘                   │
-│         │                                                        │
-│         │ 1:N                                                   │
-│         │                                                        │
-│  ┌──────▼───────┐          ┌───────────────┐                   │
-│  │activity_logs │          │ server_stats  │                   │
-│  ├──────────────┤          ├───────────────┤                   │
-│  │ id (PK)      │          │ id (PK)       │                   │
-│  │ user_id (FK) │          │ active_tunnels│                   │
-│  │ action       │          │ total_conns   │                   │
-│  │ details      │          │ bytes_in      │                   │
-│  │ ip_address   │          │ bytes_out     │                   │
-│  │ created_at   │          │ timestamp     │                   │
-│  └──────────────┘          └───────────────┘                   │
-│                                                                  │
-└─────────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────────────────┐
+│                                                                               │
+│  ┌──────────────┐          ┌───────────────┐          ┌─────────────────┐   │
+│  │    users     │          │    tunnels    │          │ tunnel_metrics  │   │
+│  ├──────────────┤          ├───────────────┤          ├─────────────────┤   │
+│  │ id (PK)      │◄────────┤│ user_id (FK)  │◄────────┤│ tunnel_id (FK)  │   │
+│  │ email        │     1:N  │ id (PK)       │     1:N  │ id (PK)         │   │
+│  │ password_hash│          │ name          │          │ tunnel_name     │   │
+│  │ token        │          │ type          │          │ traffic_in      │   │
+│  │ is_admin     │          │ subdomain     │          │ traffic_out     │   │
+│  │ is_active    │          │ remote_port   │          │ current_conns   │   │
+│  │ max_tunnels  │          │ is_active     │          │ status          │   │
+│  │ created_at   │          │ created_at    │          │ collected_at    │   │
+│  │ last_login   │          │ last_connected│          └─────────────────┘   │
+│  └──────┬───────┘          └───────┬───────┘                                │
+│         │                          │                                         │
+│         │ 1:N                      │ 1:N                                    │
+│         │                          │                                         │
+│  ┌──────▼───────┐          ┌───────▼─────────┐       ┌───────────────┐     │
+│  │activity_logs │          │ request_metrics │       │ server_stats  │     │
+│  ├──────────────┤          ├─────────────────┤       ├───────────────┤     │
+│  │ id (PK)      │          │ id (PK)         │       │ id (PK)       │     │
+│  │ user_id (FK) │          │ tunnel_id (FK)  │       │ active_tunnels│     │
+│  │ action       │          │ tunnel_name     │       │ total_conns   │     │
+│  │ details      │          │ request_path    │       │ bytes_in      │     │
+│  │ ip_address   │          │ request_method  │       │ bytes_out     │     │
+│  │ created_at   │          │ status_code     │       │ timestamp     │     │
+│  └──────────────┘          │ response_time_ms│       └───────────────┘     │
+│                            │ bytes_sent      │                              │
+│                            │ bytes_received  │                              │
+│                            │ client_ip       │                              │
+│                            │ timestamp       │                              │
+│                            └─────────────────┘                              │
+│                                                                               │
+└──────────────────────────────────────────────────────────────────────────────┘
 ```
 
 ---
@@ -230,6 +235,85 @@ CREATE TABLE server_stats (
 | `timestamp` | TIMESTAMP | DEFAULT NOW | Snapshot timestamp |
 
 **Note**: This table is currently created but not actively populated. Future versions may include statistics collection.
+
+---
+
+### tunnel_metrics
+
+Stores aggregate tunnel metrics collected from the frps dashboard API.
+
+```sql
+CREATE TABLE tunnel_metrics (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    tunnel_id INTEGER NOT NULL,
+    tunnel_name TEXT NOT NULL,
+    traffic_in INTEGER DEFAULT 0,
+    traffic_out INTEGER DEFAULT 0,
+    current_connections INTEGER DEFAULT 0,
+    status TEXT DEFAULT 'offline',
+    collected_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (tunnel_id) REFERENCES tunnels(id)
+);
+```
+
+| Column | Type | Constraints | Description |
+|--------|------|-------------|-------------|
+| `id` | INTEGER | PRIMARY KEY, AUTO | Unique identifier |
+| `tunnel_id` | INTEGER | NOT NULL, FK | Reference to tunnel |
+| `tunnel_name` | TEXT | NOT NULL | Tunnel name (denormalized) |
+| `traffic_in` | INTEGER | DEFAULT 0 | Bytes received today |
+| `traffic_out` | INTEGER | DEFAULT 0 | Bytes transmitted today |
+| `current_connections` | INTEGER | DEFAULT 0 | Active connections |
+| `status` | TEXT | DEFAULT 'offline' | 'online' or 'offline' |
+| `collected_at` | TIMESTAMP | DEFAULT NOW | Collection timestamp |
+
+**Indexes:**
+- `idx_tunnel_metrics_tunnel` on `(tunnel_id, collected_at)`
+
+**Note**: This table is populated by a background task that polls the frps dashboard API every 60 seconds.
+
+---
+
+### request_metrics
+
+Stores per-request metrics reported by tunnel clients for performance monitoring.
+
+```sql
+CREATE TABLE request_metrics (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    tunnel_id INTEGER NOT NULL,
+    tunnel_name TEXT NOT NULL,
+    request_path TEXT,
+    request_method TEXT,
+    status_code INTEGER,
+    response_time_ms INTEGER,
+    bytes_sent INTEGER DEFAULT 0,
+    bytes_received INTEGER DEFAULT 0,
+    client_ip TEXT,
+    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (tunnel_id) REFERENCES tunnels(id)
+);
+```
+
+| Column | Type | Constraints | Description |
+|--------|------|-------------|-------------|
+| `id` | INTEGER | PRIMARY KEY, AUTO | Unique identifier |
+| `tunnel_id` | INTEGER | NOT NULL, FK | Reference to tunnel |
+| `tunnel_name` | TEXT | NOT NULL | Tunnel name (denormalized) |
+| `request_path` | TEXT | NULL | URL path of request |
+| `request_method` | TEXT | NULL | HTTP method (GET, POST, etc.) |
+| `status_code` | INTEGER | NULL | HTTP response status code |
+| `response_time_ms` | INTEGER | NULL | Response time in milliseconds |
+| `bytes_sent` | INTEGER | DEFAULT 0 | Request body size |
+| `bytes_received` | INTEGER | DEFAULT 0 | Response body size |
+| `client_ip` | TEXT | NULL | Client IP address |
+| `timestamp` | TIMESTAMP | DEFAULT NOW | Request timestamp |
+
+**Indexes:**
+- `idx_request_metrics_tunnel` on `(tunnel_id, timestamp)`
+- `idx_request_metrics_slow` on `(response_time_ms DESC)`
+
+**Data Retention**: Metrics older than 7 days are automatically cleaned up by a background task.
 
 ---
 
