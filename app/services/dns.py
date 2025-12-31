@@ -11,6 +11,58 @@ logger = logging.getLogger(__name__)
 
 NETLIFY_API_BASE = "https://api.netlify.com/api/v1"
 
+# Cache for zone ID lookup
+_cached_zone_id: Optional[str] = None
+
+
+def _get_zone_id() -> Optional[str]:
+    """
+    Get the DNS zone ID, either from config or by auto-detecting from the domain.
+
+    If NETLIFY_DNS_ZONE_ID is set, use it directly.
+    Otherwise, query Netlify API to find the zone for TUNNEL_DOMAIN.
+    """
+    global _cached_zone_id
+
+    # Use configured zone ID if available
+    if NETLIFY_DNS_ZONE_ID:
+        return NETLIFY_DNS_ZONE_ID
+
+    # Return cached value if we already looked it up
+    if _cached_zone_id:
+        return _cached_zone_id
+
+    if not NETLIFY_API_TOKEN or not TUNNEL_DOMAIN:
+        return None
+
+    # Extract the base domain (e.g., "ersantana.com" from "tunnel.ersantana.com")
+    parts = TUNNEL_DOMAIN.split(".")
+    if len(parts) >= 2:
+        base_domain = ".".join(parts[-2:])  # Last two parts
+    else:
+        base_domain = TUNNEL_DOMAIN
+
+    try:
+        response = requests.get(
+            f"{NETLIFY_API_BASE}/dns_zones",
+            headers=_get_headers(),
+            timeout=10,
+        )
+        response.raise_for_status()
+        zones = response.json()
+
+        for zone in zones:
+            if zone.get("name") == base_domain:
+                _cached_zone_id = zone.get("id")
+                logger.info(f"Auto-detected DNS zone ID for {base_domain}: {_cached_zone_id}")
+                return _cached_zone_id
+
+        logger.warning(f"No DNS zone found for domain {base_domain}")
+        return None
+    except Exception as e:
+        logger.error(f"Failed to auto-detect DNS zone ID: {e}")
+        return None
+
 
 def get_public_ip() -> Optional[str]:
     """Get the server's public IP address"""
@@ -45,13 +97,14 @@ def _get_headers() -> dict:
 
 def list_dns_records() -> list:
     """List all DNS records in the zone"""
-    if not NETLIFY_API_TOKEN or not NETLIFY_DNS_ZONE_ID:
+    zone_id = _get_zone_id()
+    if not NETLIFY_API_TOKEN or not zone_id:
         logger.warning("Netlify DNS not configured (missing API token or zone ID)")
         return []
 
     try:
         response = requests.get(
-            f"{NETLIFY_API_BASE}/dns_zones/{NETLIFY_DNS_ZONE_ID}/dns_records",
+            f"{NETLIFY_API_BASE}/dns_zones/{zone_id}/dns_records",
             headers=_get_headers(),
             timeout=10,
         )
@@ -73,13 +126,14 @@ def find_record(hostname: str, record_type: str = "A") -> Optional[dict]:
 
 def create_dns_record(hostname: str, ip: str, record_type: str = "A", ttl: int = 300) -> bool:
     """Create a new DNS record"""
-    if not NETLIFY_API_TOKEN or not NETLIFY_DNS_ZONE_ID:
+    zone_id = _get_zone_id()
+    if not NETLIFY_API_TOKEN or not zone_id:
         logger.warning("Netlify DNS not configured (missing API token or zone ID)")
         return False
 
     try:
         response = requests.post(
-            f"{NETLIFY_API_BASE}/dns_zones/{NETLIFY_DNS_ZONE_ID}/dns_records",
+            f"{NETLIFY_API_BASE}/dns_zones/{zone_id}/dns_records",
             headers=_get_headers(),
             json={
                 "type": record_type,
@@ -102,12 +156,13 @@ def create_dns_record(hostname: str, ip: str, record_type: str = "A", ttl: int =
 
 def delete_dns_record(record_id: str) -> bool:
     """Delete a DNS record by ID"""
-    if not NETLIFY_API_TOKEN or not NETLIFY_DNS_ZONE_ID:
+    zone_id = _get_zone_id()
+    if not NETLIFY_API_TOKEN or not zone_id:
         return False
 
     try:
         response = requests.delete(
-            f"{NETLIFY_API_BASE}/dns_zones/{NETLIFY_DNS_ZONE_ID}/dns_records/{record_id}",
+            f"{NETLIFY_API_BASE}/dns_zones/{zone_id}/dns_records/{record_id}",
             headers=_get_headers(),
             timeout=10,
         )
@@ -146,7 +201,8 @@ def setup_tunnel_dns() -> bool:
 
     Returns True if successful, False otherwise.
     """
-    if not NETLIFY_API_TOKEN or not NETLIFY_DNS_ZONE_ID:
+    zone_id = _get_zone_id()
+    if not NETLIFY_API_TOKEN or not zone_id:
         logger.info("Netlify DNS not configured, skipping DNS setup")
         return False
 

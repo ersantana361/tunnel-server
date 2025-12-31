@@ -30,7 +30,7 @@ The application is configured primarily through environment variables, allowing 
 | `ADMIN_TOKEN` | Admin tunnel token (from 1Password) | Auto-generated | No |
 | `OP_SERVICE_ACCOUNT_TOKEN` | 1Password service account token | None | For production |
 | `NETLIFY_API_TOKEN` | Netlify API token for automatic DNS | None | For auto DNS |
-| `NETLIFY_DNS_ZONE_ID` | Netlify DNS zone ID | None | For auto DNS |
+| `NETLIFY_DNS_ZONE_ID` | Netlify DNS zone ID (auto-detected if not set) | Auto-detected | No |
 | `TUNNEL_DOMAIN` | Domain for tunnel DNS records | `tunnel.ersantana.com` | No |
 | `FRPS_DASHBOARD_HOST` | frps dashboard hostname | `localhost` | No |
 | `FRPS_DASHBOARD_PORT` | frps dashboard port | `7500` | No |
@@ -109,8 +109,7 @@ This creates a `tunnel-server` item in the `Tunnel` vault with:
 - `domain` - Server domain
 - `netlify-token` - (optional) For SSL via Caddy
 - `dash-password` - (optional) frp dashboard password
-- `netlify-api-token` - (optional) For automatic DNS record creation
-- `netlify-dns-zone-id` - (optional) DNS zone ID for automatic DNS
+- `netlify-api-token` - (optional) For automatic DNS record creation (zone ID is auto-detected)
 
 ### Using .env.1password
 
@@ -123,8 +122,8 @@ ADMIN_TOKEN=op://Tunnel/tunnel-server/admin-token
 DB_PATH=/var/lib/tunnel-server/tunnel.db
 
 # Netlify DNS (for automatic DNS record creation on startup)
+# Only the API token is required - zone ID is auto-detected from the domain
 NETLIFY_API_TOKEN=op://Tunnel/tunnel-server/netlify-api-token
-NETLIFY_DNS_ZONE_ID=op://Tunnel/tunnel-server/netlify-dns-zone-id
 TUNNEL_DOMAIN=tunnel.ersantana.com
 ```
 
@@ -543,8 +542,8 @@ export DB_PATH="/var/lib/tunnel-server/tunnel.db"
 export FRPS_CONFIG="/etc/frp/frps.ini"
 
 # Netlify DNS (optional - for automatic DNS record creation)
+# Zone ID is auto-detected from the domain
 export NETLIFY_API_TOKEN="your-netlify-api-token"
-export NETLIFY_DNS_ZONE_ID="your-zone-id"
 export TUNNEL_DOMAIN="tunnel.ersantana.com"
 ```
 
@@ -558,35 +557,26 @@ The server can automatically create and update DNS records on startup using the 
 
 On startup, the server:
 1. Detects its public IP address
-2. Creates/updates an A record for `tunnel.ersantana.com`
-3. Creates/updates a wildcard A record for `*.tunnel.ersantana.com`
+2. Auto-detects the DNS zone ID from `TUNNEL_DOMAIN` (e.g., finds zone for `ersantana.com` from `tunnel.ersantana.com`)
+3. Creates/updates an A record for `tunnel.ersantana.com`
+4. Creates/updates a wildcard A record for `*.tunnel.ersantana.com`
 
 If records already exist with the correct IP, no changes are made.
 
-### Getting Your Zone ID
-
-```bash
-# List all DNS zones
-curl -H "Authorization: Bearer YOUR_TOKEN" \
-  https://api.netlify.com/api/v1/dns_zones | jq '.[] | {name, id}'
-
-# Example output:
-# { "name": "ersantana.com", "id": "5f1234567890abcdef123456" }
-```
-
 ### Configuration
 
-Add to `.env.1password` or set environment variables:
+Only the API token and domain are required - the zone ID is auto-detected:
 
 ```env
 NETLIFY_API_TOKEN=op://Tunnel/tunnel-server/netlify-api-token
-NETLIFY_DNS_ZONE_ID=op://Tunnel/tunnel-server/netlify-dns-zone-id
 TUNNEL_DOMAIN=tunnel.ersantana.com
 ```
 
+You can optionally set `NETLIFY_DNS_ZONE_ID` to skip auto-detection if needed.
+
 ### Disabling Automatic DNS
 
-To disable automatic DNS, simply don't set `NETLIFY_API_TOKEN` or `NETLIFY_DNS_ZONE_ID`. The server will skip DNS setup and log a message.
+To disable automatic DNS, simply don't set `NETLIFY_API_TOKEN`. The server will skip DNS setup and log a message.
 
 ### Configuration File Locations
 
