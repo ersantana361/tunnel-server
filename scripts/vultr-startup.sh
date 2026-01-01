@@ -249,17 +249,21 @@ DB_PATH=/var/lib/tunnel-server/tunnel.db
 EOF
 
 # Create tunnel-server OpenRC service (with 1Password)
-cat > /etc/init.d/tunnel-server <<'EOF'
+cat > /etc/init.d/tunnel-server <<EOF
 #!/sbin/openrc-run
 
 name="tunnel-server"
 description="Tunnel Server Admin Dashboard"
-command="/opt/tunnel-server/scripts/start.sh"
-command_background=true
-pidfile="/run/${RC_SVCNAME}.pid"
+supervisor="supervise-daemon"
+command="/opt/tunnel-server/venv/bin/python3"
+command_args="main.py"
 directory="/opt/tunnel-server"
+pidfile="/run/\${RC_SVCNAME}.pid"
 output_log="/var/log/tunnel-server.log"
 error_log="/var/log/tunnel-server.log"
+
+export FRPS_DASHBOARD_PASS="${DASH_PASS}"
+export DB_PATH="/var/lib/tunnel-server/tunnel.db"
 
 depend() {
     need net
@@ -267,14 +271,15 @@ depend() {
 }
 
 start_pre() {
-    # Source 1Password token
+    # Source 1Password token and inject secrets
     if [ -f /etc/profile.d/1password.sh ]; then
         . /etc/profile.d/1password.sh
     fi
 
-    if [ -z "$OP_SERVICE_ACCOUNT_TOKEN" ]; then
-        eerror "OP_SERVICE_ACCOUNT_TOKEN not set!"
-        return 1
+    if [ -n "\$OP_SERVICE_ACCOUNT_TOKEN" ]; then
+        export JWT_SECRET=\$(op read "op://Tunnel/tunnel-server/jwt-secret" 2>/dev/null || echo "")
+        export ADMIN_PASSWORD=\$(op read "op://Tunnel/tunnel-server/admin-password" 2>/dev/null || echo "")
+        export ADMIN_TOKEN=\$(op read "op://Tunnel/tunnel-server/admin-token" 2>/dev/null || echo "")
     fi
 
     checkpath --directory --owner root:root --mode 0700 /var/lib/tunnel-server
