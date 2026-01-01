@@ -36,7 +36,7 @@ OP_SERVICE_ACCOUNT_TOKEN='ops_'
 export OP_SERVICE_ACCOUNT_TOKEN
 
 # Optional settings
-ACME_EMAIL="admin@localhost"
+ACME_EMAIL="neves.erick@gmail.com"
 
 # ============================================================
 # DO NOT EDIT BELOW THIS LINE

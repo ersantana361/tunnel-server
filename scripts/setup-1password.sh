@@ -72,8 +72,8 @@ DASH_PASSWORD=$(openssl rand -hex 16)
 echo ""
 read -p "Enter domain (e.g., tunnel.example.com) [leave empty to use IP]: " DOMAIN
 read -p "Enter Netlify API token [leave empty to skip]: " NETLIFY_TOKEN
-read -p "Enter ACME email for SSL certs [admin@localhost]: " ACME_EMAIL
-ACME_EMAIL="${ACME_EMAIL:-admin@localhost}"
+read -p "Enter ACME email for SSL certs [neves.erick@gmail.com]: " ACME_EMAIL
+ACME_EMAIL="${ACME_EMAIL:-neves.erick@gmail.com}"
 
 # Check if item already exists
 if op item get "$ITEM_NAME" --vault "$VAULT" >/dev/null 2>&1; then
