@@ -321,22 +321,20 @@ if [ -n "$NETLIFY_TOKEN" ]; then
         dns netlify {env.NETLIFY_TOKEN}
     }
 
-    # CORS headers - reflect Origin for credentials support
+    # CORS headers - only add if backend didn't set them (? prefix)
+    header ?Access-Control-Allow-Origin {header.Origin}
+    header ?Access-Control-Allow-Methods "GET, POST, PUT, DELETE, PATCH, OPTIONS"
+    header ?Access-Control-Allow-Headers "Content-Type, Authorization, Accept, Origin, X-Requested-With"
+    header ?Access-Control-Allow-Credentials "true"
+    header ?Access-Control-Max-Age "86400"
+
+    # Handle OPTIONS preflight requests
     @cors_preflight method OPTIONS
     handle @cors_preflight {
-        header Access-Control-Allow-Origin {header.Origin}
-        header Access-Control-Allow-Methods "GET, POST, PUT, DELETE, PATCH, OPTIONS"
-        header Access-Control-Allow-Headers "Content-Type, Authorization, Accept, Origin, X-Requested-With"
-        header Access-Control-Allow-Credentials "true"
-        header Access-Control-Max-Age "86400"
         respond "" 204
     }
 
     handle {
-        header Access-Control-Allow-Origin {header.Origin}
-        header Access-Control-Allow-Methods "GET, POST, PUT, DELETE, PATCH, OPTIONS"
-        header Access-Control-Allow-Headers "Content-Type, Authorization, Accept, Origin, X-Requested-With"
-        header Access-Control-Allow-Credentials "true"
         reverse_proxy localhost:8080
     }
 }
