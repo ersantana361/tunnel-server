@@ -58,6 +58,7 @@ scp $SSH_OPTS "$PROJECT_DIR/app/routes/__init__.py" "$SERVER:$REMOTE_DIR/app/rou
 scp $SSH_OPTS "$PROJECT_DIR/app/routes/auth.py" "$SERVER:$REMOTE_DIR/app/routes/"
 scp $SSH_OPTS "$PROJECT_DIR/app/routes/users.py" "$SERVER:$REMOTE_DIR/app/routes/"
 scp $SSH_OPTS "$PROJECT_DIR/app/routes/tunnels.py" "$SERVER:$REMOTE_DIR/app/routes/"
+scp $SSH_OPTS "$PROJECT_DIR/app/routes/ssh_keys.py" "$SERVER:$REMOTE_DIR/app/routes/"
 scp $SSH_OPTS "$PROJECT_DIR/app/routes/stats.py" "$SERVER:$REMOTE_DIR/app/routes/"
 
 scp $SSH_OPTS "$PROJECT_DIR/app/services/__init__.py" "$SERVER:$REMOTE_DIR/app/services/"
