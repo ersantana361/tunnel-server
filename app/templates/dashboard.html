@@ -730,12 +730,18 @@
             if (res.ok) {
                 const data = await res.json();
                 const tbody = document.getElementById('tunnelsList');
-                tbody.innerHTML = data.tunnels.map(t => `
+                tbody.innerHTML = data.tunnels.map(t => {
+                    let detail = t.subdomain || t.remote_port || '-';
+                    let sshHtml = '';
+                    if (t.type === 'ssh' && t.ssh_connection_string) {
+                        sshHtml = `<br><code style="color:#a78bfa;font-size:12px;cursor:pointer" title="Click to copy" onclick="navigator.clipboard.writeText('${t.ssh_connection_string}')">${t.ssh_connection_string}</code>`;
+                    }
+                    return `
                     <tr>
                         <td>${t.user_email || t.user_id}</td>
                         <td>${t.name}</td>
                         <td>${t.type.toUpperCase()}</td>
-                        <td>${t.subdomain || t.remote_port || '-'}</td>
+                        <td>${detail}${sshHtml}</td>
                         <td>
                             <span class="badge ${t.is_active ? 'badge-success' : 'badge-warning'}">
                                 ${t.is_active ? 'Connected' : 'Offline'}
@@ -744,7 +750,7 @@
                         <td>${formatDate(t.created_at)}</td>
                         <td>${t.last_connected ? formatDate(t.last_connected) : 'Never'}</td>
                     </tr>
-                `).join('');
+                `}).join('');
             }
         }
 

@@ -2,8 +2,9 @@
 Tunnel services - URL generation, config generation, quota checks
 """
 import os
+import socket
 import sqlite3
-from typing import Optional, Tuple
+from typing import Optional, Tuple, Dict, Any
 from ..config import DB_FILE, FRPS_CONFIG
 from ..models.schemas import TunnelCreate
 
@@ -42,9 +43,39 @@ def get_public_url(
         if subdomain:
             return f"{protocol}://{subdomain}.{domain}"
         return f"{protocol}://{domain}"
-    elif tunnel_type == "tcp" and remote_port:
+    elif tunnel_type in ("tcp", "ssh") and remote_port:
         return f"tcp://{domain}:{remote_port}"
     return None
+
+
+def get_ssh_connection_string(
+    ssh_user: str,
+    remote_port: int,
+    domain: Optional[str] = None
+) -> str:
+    """Generate SSH connection string for display"""
+    if domain is None:
+        domain = get_server_domain()
+    return f"ssh {ssh_user}@{domain} -p {remote_port}"
+
+
+def test_ssh_connection(domain: str, remote_port: int) -> Dict[str, Any]:
+    """Test if an SSH service is reachable on the given domain:port"""
+    result = {"reachable": False, "is_ssh": False, "ssh_banner": None}
+    try:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.settimeout(5)
+        sock.connect((domain, remote_port))
+        result["reachable"] = True
+        # Try to read SSH banner
+        banner = sock.recv(256).decode("utf-8", errors="replace").strip()
+        if banner.startswith("SSH-"):
+            result["is_ssh"] = True
+            result["ssh_banner"] = banner
+        sock.close()
+    except (socket.timeout, ConnectionRefusedError, OSError):
+        pass
+    return result
 
 
 def check_user_quota(user_id: int) -> Tuple[bool, int, int]:
@@ -85,13 +116,16 @@ def generate_frpc_config(
         config_lines.append("")
 
     config_lines.append(f"[{tunnel.name}]")
-    config_lines.append(f"type = {tunnel.type}")
+
+    # SSH tunnels map to TCP in frpc (frp has no native SSH type)
+    frpc_type = "tcp" if tunnel.type == "ssh" else tunnel.type
+    config_lines.append(f"type = {frpc_type}")
     config_lines.append(f"local_ip = {tunnel.local_host}")
     config_lines.append(f"local_port = {tunnel.local_port}")
 
     if tunnel.type in ("http", "https") and tunnel.subdomain:
         config_lines.append(f"subdomain = {tunnel.subdomain}")
-    elif tunnel.type == "tcp" and tunnel.remote_port:
+    elif tunnel.type in ("tcp", "ssh") and tunnel.remote_port:
         config_lines.append(f"remote_port = {tunnel.remote_port}")
 
     return "\n".join(config_lines)

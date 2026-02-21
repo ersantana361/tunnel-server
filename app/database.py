@@ -117,6 +117,26 @@ def init_db():
         )
     """)
 
+    # SSH keys table
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS ssh_keys (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            name TEXT NOT NULL,
+            public_key TEXT NOT NULL,
+            fingerprint TEXT NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (user_id) REFERENCES users(id),
+            UNIQUE(user_id, fingerprint)
+        )
+    """)
+
+    # Migration: add ssh_user column to tunnels table
+    try:
+        cursor.execute("ALTER TABLE tunnels ADD COLUMN ssh_user TEXT")
+    except sqlite3.OperationalError:
+        pass  # Column already exists
+
     # Indexes for efficient querying
     cursor.execute("""
         CREATE INDEX IF NOT EXISTS idx_tunnel_metrics_tunnel

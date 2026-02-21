@@ -10,7 +10,7 @@ from fastapi.responses import HTMLResponse
 from contextlib import asynccontextmanager
 
 from .database import init_db
-from .routes import auth, users, tunnels, stats
+from .routes import auth, users, tunnels, stats, ssh_keys
 from .services.dns import setup_tunnel_dns
 from .services.metrics import collect_tunnel_metrics, cleanup_old_metrics
 
@@ -83,6 +83,7 @@ def create_app() -> FastAPI:
     app.include_router(users.router, prefix="/api/users", tags=["users"])
     app.include_router(tunnels.router, prefix="/api/tunnels", tags=["tunnels"])
     app.include_router(stats.router, prefix="/api", tags=["stats"])
+    app.include_router(ssh_keys.router, prefix="/api/ssh-keys", tags=["ssh-keys"])
 
     # Serve dashboard at root
     @app.get("/", response_class=HTMLResponse)

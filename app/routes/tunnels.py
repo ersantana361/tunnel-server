@@ -11,6 +11,8 @@ from ..dependencies import verify_token
 from ..services.tunnel import (
     get_server_domain,
     get_public_url,
+    get_ssh_connection_string,
+    test_ssh_connection,
     check_user_quota,
     generate_frpc_config,
 )
@@ -49,10 +51,12 @@ async def list_tunnels(user_id: int = Depends(verify_token)):
     tunnels = [dict(row) for row in cursor.fetchall()]
     conn.close()
 
-    # Add public_url to each tunnel
+    # Add public_url and ssh_connection_string to each tunnel
     domain = get_server_domain()
     for t in tunnels:
         t['public_url'] = get_public_url(t['type'], t.get('subdomain'), t.get('remote_port'), domain)
+        if t['type'] == 'ssh' and t.get('ssh_user') and t.get('remote_port'):
+            t['ssh_connection_string'] = get_ssh_connection_string(t['ssh_user'], t['remote_port'], domain)
 
     return {"tunnels": tunnels}
 
@@ -69,8 +73,8 @@ async def create_tunnel(tunnel: TunnelCreate, user_id: int = Depends(verify_toke
         )
 
     # Validate tunnel type
-    if tunnel.type not in ("http", "https", "tcp"):
-        raise HTTPException(status_code=400, detail="Invalid tunnel type. Must be http, https, or tcp.")
+    if tunnel.type not in ("http", "https", "tcp", "ssh"):
+        raise HTTPException(status_code=400, detail="Invalid tunnel type. Must be http, https, tcp, or ssh.")
 
     # For http/https, subdomain is required
     if tunnel.type in ("http", "https") and not tunnel.subdomain:
@@ -80,15 +84,22 @@ async def create_tunnel(tunnel: TunnelCreate, user_id: int = Depends(verify_toke
     if tunnel.type == "tcp" and not tunnel.remote_port:
         raise HTTPException(status_code=400, detail="Remote port is required for TCP tunnels.")
 
+    # For ssh, remote_port and ssh_user are required
+    if tunnel.type == "ssh":
+        if not tunnel.remote_port:
+            raise HTTPException(status_code=400, detail="Remote port is required for SSH tunnels.")
+        if not tunnel.ssh_user:
+            raise HTTPException(status_code=400, detail="SSH user is required for SSH tunnels.")
+
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
 
     try:
         cursor.execute("""
-            INSERT INTO tunnels (user_id, name, type, local_port, local_host, subdomain, remote_port)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO tunnels (user_id, name, type, local_port, local_host, subdomain, remote_port, ssh_user)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         """, (user_id, tunnel.name, tunnel.type, tunnel.local_port, tunnel.local_host,
-              tunnel.subdomain, tunnel.remote_port))
+              tunnel.subdomain, tunnel.remote_port, tunnel.ssh_user))
 
         tunnel_id = cursor.lastrowid
         conn.commit()
@@ -101,7 +112,7 @@ async def create_tunnel(tunnel: TunnelCreate, user_id: int = Depends(verify_toke
         # Generate frpc config snippet
         frpc_config = generate_frpc_config(tunnel, domain)
 
-        return {
+        result = {
             "id": tunnel_id,
             "name": tunnel.name,
             "type": tunnel.type,
@@ -109,9 +120,15 @@ async def create_tunnel(tunnel: TunnelCreate, user_id: int = Depends(verify_toke
             "local_host": tunnel.local_host,
             "subdomain": tunnel.subdomain,
             "remote_port": tunnel.remote_port,
+            "ssh_user": tunnel.ssh_user,
             "public_url": public_url,
             "frpc_config": frpc_config
         }
+
+        if tunnel.type == "ssh" and tunnel.ssh_user and tunnel.remote_port:
+            result["ssh_connection_string"] = get_ssh_connection_string(tunnel.ssh_user, tunnel.remote_port, domain)
+
+        return result
     except sqlite3.IntegrityError:
         raise HTTPException(status_code=400, detail=f"Tunnel with name '{tunnel.name}' already exists.")
     finally:
@@ -156,6 +173,8 @@ async def update_tunnel(tunnel_id: int, tunnel_update: TunnelUpdate, user_id: in
         update_fields['subdomain'] = tunnel_update.subdomain
     if tunnel_update.remote_port is not None:
         update_fields['remote_port'] = tunnel_update.remote_port
+    if tunnel_update.ssh_user is not None:
+        update_fields['ssh_user'] = tunnel_update.ssh_user
 
     if not update_fields:
         conn.close()
@@ -165,6 +184,7 @@ async def update_tunnel(tunnel_id: int, tunnel_update: TunnelUpdate, user_id: in
     final_type = update_fields.get('type', tunnel['type'])
     final_subdomain = update_fields.get('subdomain', tunnel['subdomain'])
     final_remote_port = update_fields.get('remote_port', tunnel['remote_port'])
+    final_ssh_user = update_fields.get('ssh_user', tunnel['ssh_user'])
 
     # Validate type constraints
     if final_type in ("http", "https") and not final_subdomain:
@@ -173,6 +193,13 @@ async def update_tunnel(tunnel_id: int, tunnel_update: TunnelUpdate, user_id: in
     if final_type == "tcp" and not final_remote_port:
         conn.close()
         raise HTTPException(status_code=400, detail="Remote port is required for TCP tunnels.")
+    if final_type == "ssh":
+        if not final_remote_port:
+            conn.close()
+            raise HTTPException(status_code=400, detail="Remote port is required for SSH tunnels.")
+        if not final_ssh_user:
+            conn.close()
+            raise HTTPException(status_code=400, detail="SSH user is required for SSH tunnels.")
 
     # Build and execute UPDATE query
     set_clause = ", ".join(f"{k} = ?" for k in update_fields.keys())
@@ -196,6 +223,11 @@ async def update_tunnel(tunnel_id: int, tunnel_update: TunnelUpdate, user_id: in
             updated_tunnel.get('remote_port'),
             domain
         )
+
+        if updated_tunnel['type'] == 'ssh' and updated_tunnel.get('ssh_user') and updated_tunnel.get('remote_port'):
+            updated_tunnel['ssh_connection_string'] = get_ssh_connection_string(
+                updated_tunnel['ssh_user'], updated_tunnel['remote_port'], domain
+            )
 
         return updated_tunnel
     except sqlite3.IntegrityError:
@@ -320,3 +352,38 @@ async def get_tunnel_config(tunnel_id: int, user_id: int = Depends(verify_token)
         "public_url": public_url,
         "frpc_config": frpc_config
     }
+
+
+@router.get("/{tunnel_id}/test-ssh")
+async def test_ssh_endpoint(tunnel_id: int, user_id: int = Depends(verify_token)):
+    """Test if SSH is reachable on a tunnel's remote port"""
+    conn = sqlite3.connect(DB_FILE)
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+
+    cursor.execute("SELECT * FROM tunnels WHERE id = ?", (tunnel_id,))
+    tunnel = cursor.fetchone()
+
+    if not tunnel:
+        conn.close()
+        raise HTTPException(status_code=404, detail="Tunnel not found")
+
+    # Check ownership
+    cursor.execute("SELECT is_admin FROM users WHERE id = ?", (user_id,))
+    is_admin = cursor.fetchone()[0]
+
+    if not is_admin and tunnel['user_id'] != user_id:
+        conn.close()
+        raise HTTPException(status_code=403, detail="You don't have permission to test this tunnel")
+
+    conn.close()
+
+    if tunnel['type'] != 'ssh':
+        raise HTTPException(status_code=400, detail="This endpoint is only for SSH tunnels")
+
+    if not tunnel['remote_port']:
+        raise HTTPException(status_code=400, detail="Tunnel has no remote port configured")
+
+    domain = get_server_domain()
+    result = test_ssh_connection(domain, tunnel['remote_port'])
+    return result

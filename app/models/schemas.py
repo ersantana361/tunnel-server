@@ -28,11 +28,12 @@ class UserUpdate(BaseModel):
 
 class TunnelCreate(BaseModel):
     name: str
-    type: str  # http, https, tcp
+    type: str  # http, https, tcp, ssh
     local_port: int
     local_host: str = "127.0.0.1"
     subdomain: Optional[str] = None  # for http/https
-    remote_port: Optional[int] = None  # for tcp
+    remote_port: Optional[int] = None  # for tcp/ssh
+    ssh_user: Optional[str] = None  # for ssh
 
 
 class TunnelStatusUpdate(BaseModel):
@@ -46,6 +47,20 @@ class TunnelUpdate(BaseModel):
     local_host: Optional[str] = None
     subdomain: Optional[str] = None
     remote_port: Optional[int] = None
+    ssh_user: Optional[str] = None
+
+
+class SSHKeyCreate(BaseModel):
+    name: str
+    public_key: str
+
+
+class SSHKeyResponse(BaseModel):
+    id: int
+    name: str
+    public_key: str
+    fingerprint: str
+    created_at: str
 
 
 class RequestMetric(BaseModel):
