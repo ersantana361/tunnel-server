@@ -1,0 +1,6 @@
+name: tunnel-server
+runtime:
+  name: python
+  options:
+    virtualenv: venv
+description: Tunnel server infrastructure on Google Cloud Platform

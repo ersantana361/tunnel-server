@@ -1,0 +1,18 @@
+config:
+  gcp:project: savvy-math-488316-e2
+  gcp:region: us-central1
+  tunnel-server:tunnel_domain: tunnel.ersantana.com
+  tunnel-server:acme_email: neves.erick@gmail.com
+  tunnel-server:netlify_dns_zone_id: 675e29b033df64c069634ea9
+  tunnel-server:admin_password:
+    secure: AAABAB1n/ItP1ZJIR1d5490O19wdTTGLnpm7Zz9M2Bdx+5/+4beEKbwK4e4l2j+DgzZ8uktQ
+  tunnel-server:netlify_api_token:
+    secure: AAABADlU66bppkW6NMMUAeWdHZycA8hF1x6XxwjBNuXbF5u29WvGYqL7VldbpLq7T5+QHIN1weRJDct6z3bBWzLR9hVMD5/v
+  tunnel-server:jwt_secret:
+    secure: AAABABIyjPm3Z58Ei2CnekBS0sTAVpDL597wHYXGlRKvz0FGvctNSf3Ei2bb1N9VUrsv5+MJPZOn+gO+Et/eOk6OzFxVzDeannfIy6+sfbSjZSbAZIqI/mRpG4tzUxjI
+  tunnel-server:admin_token:
+    secure: AAABADtmYuUuB/GNun7SAVtVkJqV2PBEDFymTgfL/INTSwHsW/ZETe1saL1AHMVE3d6Y3DoBHTwoOPosmm5Mz0k1HyviGvoD2fjhwdD44si/XmHjRhl7yMAJdoCTU9ET
+  tunnel-server:frp_token:
+    secure: AAABAOFJoH7LiCxYgSXUNf2f4CBIF652qLWWw1C8Fx4WWhDjODTSpYK/ysEQLMt9EytCh2gc9EAv3lnk4EntLNdxQk4dWs68lr2WbFe3aEgkyIP0IQ2svEA4znM+enYB
+  tunnel-server:frps_dash_password:
+    secure: AAABAB8GGtfZ8k41EnTnNsxZ49pu2TEySVx6X2YXqeBiUxUYkLrkeWw3e/KBzQrz5Tr3oFKzS3Sjcgbw0Ne0rg==
